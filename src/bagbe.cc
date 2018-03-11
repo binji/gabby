@@ -88,7 +88,7 @@ enum {
   IE = 0xff,
 };
 
-enum class MBC { None, _1, _2, _3, _4, _5, MMM01, TAMA5, HUC3, HUC1 };
+enum class MBC { None, _1, _1M, _2, _3, _5, MMM01, TAMA5, HUC3, HUC1 };
 enum class CGB { None, Supported, Required };
 enum class ROMSize { _32k, _64k, _128k, _256k, _512k, _1m, _2m, _4m, _8m };
 enum class SRAMSize { None, _2k, _8k, _32k, _128k, _64k };
@@ -108,21 +108,23 @@ struct GB;
 struct State {
   explicit State(GB&);
 
-  Tick tick, op_tick, ppu_line_tick;
+  Tick tick = 0, op_tick = 0, ppu_line_tick = 0;
+  u8 op = 0, cb_op = 0;
   union { struct { u8 f, a; }; u16 af; };
   union { struct { u8 c, b; }; u16 bc; };
   union { struct { u8 e, d; }; u16 de; };
   union { struct { u8 l, h; }; u16 hl; };
   union { struct { u8 z, w; }; u16 wz; };
-  u16 sp, pc;
+  u16 sp = 0, pc = 0;
   u8 *rom0p, *rom1p, *vramp, *wram0p, *wram1p, *sramp;
   u8 vram[0x4000]{};  // 0x8000-0x9fff, 2 banks
   u8 sram[0x8000]{};  // 0xa000-0xbfff, 4 banks
   u8 wram[0x8000]{};  // 0xc000-0xdfff, 4 banks
   u8 oam[0x100]{};    // 0xfe00-0xfe9f
   u8 io[0x100]{};     // 0xff00-0xffff
-  u8 op, cb_op;
-  bool ime, ime_enable, dispatch;
+  bool ime = false, ime_enable = false, dispatch = false;
+  bool sram_enabled = false;
+  u8 mbc_2xxx = 0, mbc_3xxx = 0, mbc_23xxx = 0, mbc_45xxx = 0, mbc_mode = 0;
 };
 
 struct GB {
@@ -137,6 +139,7 @@ struct GB {
 
   u8 ReadU8(u16 addr);
   void WriteU8(u16 addr, u8 val);
+  void WriteU8ROM(u16 addr, u8 val);
   void WriteU8IO(u8 addr, u8 val);
 
   static u8 zflag(u8);
@@ -296,7 +299,6 @@ Cart::Cart(const Buffer& rom, Variant variant) {
     case 5: case 6: mbc = MBC::_2; break;
     case 11: case 12: case 14: mbc = MBC::MMM01; break;
     case 15: case 16: case 17: case 18: case 19: mbc = MBC::_3; break;
-    case 21: case 22: case 23: mbc = MBC::_4; break;
     case 25: case 26: case 27: case 28: case 29: case 30: mbc = MBC::_5; break;
     case 253: mbc = MBC::TAMA5; break;
     case 254: mbc = MBC::HUC3; break;
@@ -312,7 +314,6 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 }
 
 State::State(GB& gb) {
-  tick = op_tick = ppu_line_tick = 0;
   af = 0x01b0;
   bc = 0x0013;
   de = 0x00d8;
@@ -325,7 +326,6 @@ State::State(GB& gb) {
   wram0p = wram;
   wram1p = wram + 0x1000;
   sramp = sram;
-  ime = ime_enable = dispatch = false;
 
   std::fill(oam + 0xa0, oam + 0x100, 0xff);
   std::fill(io, io + 0x80, 0xff);
@@ -618,6 +618,9 @@ u8 GB::ReadU8(u16 addr) {
 
 void GB::WriteU8(u16 addr, u8 val) {
   switch (addr >> 12) {
+    case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7:
+      WriteU8ROM(addr & 0x7fff, val);
+      break;
     case 8: case 9: s.vramp[addr & 0x1fff] = val; break;
     case 10: case 11: s.sramp[addr & 0x1fff] = val; break;
     case 12: case 14: s.wram0p[addr & 0xfff] = val; break;
@@ -629,6 +632,59 @@ void GB::WriteU8(u16 addr, u8 val) {
         case 15: WriteU8IO(addr & 0xff, val); break;
       }
   }
+}
+
+void GB::WriteU8ROM(u16 addr, u8 val) {
+  switch (addr >> 12) {
+    case 0: case 1: s.sram_enabled = (val & 0xf) == 0xa; break;
+    case 2: s.mbc_2xxx = val; s.mbc_23xxx = val; break;
+    case 3: s.mbc_3xxx = val; s.mbc_23xxx = val; break;
+    case 4: case 5: s.mbc_45xxx = val; break;
+    case 6: case 7: s.mbc_mode = val; break;
+  }
+
+  u8 rom0_bank = 0, rom1_bank = 1, sram_bank = 0;
+  switch (cart.mbc) {
+    {
+      u8 mask, shift;
+      case MBC::_1: mask = 0x1f; shift = 5; goto mbc1_shared;
+      case MBC::_1M: mask = 0xf; shift = 4; goto mbc1_shared;
+      mbc1_shared:
+        u8 hi_bank = s.mbc_23xxx << shift;
+        if (s.mbc_mode) {
+          rom0_bank |= hi_bank;
+          sram_bank = s.mbc_45xxx;
+        }
+        rom1_bank = s.mbc_23xxx ? (s.mbc_23xxx & mask) : 1;
+        break;
+    }
+    case MBC::_2:
+      rom1_bank = s.mbc_23xxx & 0xf;
+      break;
+    case MBC::_3:
+      rom1_bank = s.mbc_23xxx & 0x7f;
+      sram_bank = s.mbc_45xxx & 0x7;
+      break;
+    case MBC::_5:
+      rom1_bank = ((s.mbc_3xxx & 1) << 8) | s.mbc_2xxx;
+      sram_bank = s.mbc_45xxx & 0xf;
+      break;
+    case MBC::HUC1: {
+      rom1_bank = s.mbc_23xxx & 0x3f;
+      if (rom1_bank == 0) { rom1_bank++; }
+      if (s.mbc_mode) {
+        sram_bank = s.mbc_45xxx;
+      } else {
+        rom1_bank |= (s.mbc_45xxx & 3) << 6;
+      }
+      break;
+    }
+    case MBC::MMM01: break;  // TODO
+    default: break;
+  }
+  s.rom0p = rom.data() + (rom0_bank << 14);
+  s.rom1p = rom.data() + (rom1_bank << 14);
+  s.sramp = s.sram + (sram_bank << 13);
 }
 
 void GB::WriteU8IO(u8 addr, u8 val) {
