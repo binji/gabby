@@ -138,7 +138,7 @@ struct GB {
   u8 ReadU8(u16 addr);
   void WriteU8(u16 addr, u8 val);
 
-  static u8 zflag(int);
+  static u8 zflag(u8);
   static u8 hflag(int res, int x, int y);
   bool f_is(u8 mask, u8 val);
 
@@ -659,7 +659,7 @@ void GB::WriteU8(u16 addr, u8 value) {
 }
 
 // static
-u8 GB::zflag(int x) { return x ? 0 : 0x80; }
+u8 GB::zflag(u8 x) { return x ? 0 : 0x80; }
 
 // static
 u8 GB::hflag(int res, int x, int y) { return ((res ^ x ^ y) << 1) & 0x20; }
@@ -861,7 +861,7 @@ void GB::daa() {
 
 u8 GB::dec(u8 r) {
   int res = r - 1;
-  s.f = (s.f & 0x10) | zflag(s.z) | 0x40 | hflag(res, r, 0);
+  s.f = (s.f & 0x10) | zflag(res) | 0x40 | hflag(res, r, 0);
   return res;
 }
 
@@ -912,7 +912,7 @@ void GB::halt() {
 
 u8 GB::inc(u8 r) {
   int res = r + 1;
-  s.f = (s.f & 0x10) | zflag(s.z) | hflag(res, r, 0);
+  s.f = (s.f & 0x10) | zflag(res) | hflag(res, r, 0);
   return res;
 }
 
@@ -1108,7 +1108,7 @@ void GB::nop() {
 
 u8 GB::or_(u8 x) {
   u8 r = s.a | x;
-  s.f = zflag(s.a);
+  s.f = zflag(r);
   return r;
 }
 
@@ -1273,7 +1273,7 @@ void GB::rrca() {
 
 void GB::rrc_r(u8& r) {
   switch (s.op_tick) {
-    case 4: r = rrc(r); s.op_tick = 0; break;
+    case 8: r = rrc(r); s.op_tick = 0; break;
   }
 }
 
@@ -1287,7 +1287,7 @@ void GB::rrc_mr(u16 mr) {
 
 void GB::rr_r(u8& r) {
   switch (s.op_tick) {
-    case 4: r = rr(r); s.op_tick = 0; break;
+    case 8: r = rr(r); s.op_tick = 0; break;
   }
 }
 
@@ -1448,7 +1448,7 @@ u8 GB::swap(u8 x) {
 
 void GB::swap_r(u8& r) {
   switch (s.op_tick) {
-    case 4: r = swap(r); s.op_tick = 0; break;
+    case 8: r = swap(r); s.op_tick = 0; break;
   }
 }
 
@@ -1462,7 +1462,7 @@ void GB::swap_mr(u16 mr) {
 
 u8 GB::xor_(u8 x) {
   u8 r = s.a ^ x;
-  s.f = zflag(s.a);
+  s.f = zflag(r);
   return r;
 }
 
@@ -1735,7 +1735,7 @@ int main(int argc, char** argv) {
 
     GB gb(ReadFile(argv[1]), Variant::Guess);
 
-    for (int i = 0; i < 2048; ++i) {
+    for (int i = 0; i < 3565492; ++i) {
       gb.Trace();
       gb.StepCPU();
       gb.StepPPU();
