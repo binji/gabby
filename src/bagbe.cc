@@ -571,11 +571,11 @@ u8 GB::ReadU8(u16 addr) {
 
 void GB::WriteU8(u16 addr, u8 value) {
   switch (addr >> 12) {
-    case 8: case 9: s.vramp[addr & 0x1fff] = value;
-    case 10: case 11: s.sramp[addr & 0x1fff] = value;
-    case 12: case 14: s.wram0p[addr & 0xfff] = value;
-    case 13: s.wram1p[addr & 0xfff] = value;
-    case 15: s.io[addr & 0xff] = value;
+    case 8: case 9: s.vramp[addr & 0x1fff] = value; break;
+    case 10: case 11: s.sramp[addr & 0x1fff] = value; break;
+    case 12: case 14: s.wram0p[addr & 0xfff] = value; break;
+    case 13: s.wram1p[addr & 0xfff] = value; break;
+    case 15: s.io[addr & 0xff] = value; break;
   }
 }
 
