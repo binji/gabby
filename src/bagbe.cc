@@ -142,7 +142,7 @@ struct GB {
   static u8 hflag(int res, int x, int y);
   bool f_is(u8 mask, u8 val);
 
-  u8 add(u8 x, u8 c);
+  u8 add(u8 x, u8 c = 0);
   void adc_mr(u16 mr);
   void adc_n();
   void adc_r(u8 r);
@@ -163,7 +163,6 @@ struct GB {
   void cb();
   void ccf();
   void cpl();
-  void cp(u8 x);
   void cp_mr(u16 mr);
   void cp_n();
   void cp_r(u8 r);
@@ -229,7 +228,7 @@ struct GB {
   void rr_r(u8& r);
   void rr_mr(u16 mr);
   void rst(u8 n);
-  u8 sub(u8 x, u8 c);
+  u8 sub(u8 x, u8 c = 0);
   void sbc_mr(u16 mr);
   void sbc_n();
   void sbc_r(u8 r);
@@ -715,7 +714,7 @@ void GB::add_hl_rr(u16 rr) {
 void GB::add_mr(u16 mr) {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(mr); break;
-    case 11: WriteU8(mr, add(s.z, 0)); break;
+    case 11: WriteU8(mr, add(s.z)); break;
     case 12: s.op_tick = 0; break;
   }
 }
@@ -723,13 +722,13 @@ void GB::add_mr(u16 mr) {
 void GB::add_n() {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(s.pc++); break;
-    case 8: s.a = add(s.z, 0); s.op_tick = 0; break;
+    case 8: s.a = add(s.z); s.op_tick = 0; break;
   }
 }
 
 void GB::add_r(u8 r) {
   switch (s.op_tick) {
-    case 4: s.a = add(r, 0); s.op_tick = 0; break;
+    case 4: s.a = add(r); s.op_tick = 0; break;
   }
 }
 
@@ -820,28 +819,23 @@ void GB::cpl() {
   }
 }
 
-void GB::cp(u8 x) {
-  int r = s.a - x;
-  s.f = zflag(r) | hflag(r, s.a, x) | ((r >> 4) & 0x10);
-}
-
 void GB::cp_mr(u16 mr) {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(mr); break;
-    case 8: cp(s.z); s.op_tick = 0; break;
+    case 8: sub(s.z); s.op_tick = 0; break;
   }
 }
 
 void GB::cp_n() {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(s.pc++); break;
-    case 8: cp(s.z); s.op_tick = 0; break;
+    case 8: sub(s.z); s.op_tick = 0; break;
   }
 }
 
 void GB::cp_r(u8 r) {
   switch (s.op_tick) {
-    case 4: cp(r); s.op_tick = 0; break;
+    case 4: sub(r); s.op_tick = 0; break;
   }
 }
 
@@ -1314,7 +1308,7 @@ void GB::rst(u8 n) {
 
 u8 GB::sub(u8 x, u8 c) {
   int r = s.a - x - c;
-  s.f = zflag(r) | hflag(r, s.a, x) | ((r >> 4) & 0x10);
+  s.f = zflag(r) | 0x40 | hflag(r, s.a, x) | ((r >> 4) & 0x10);
   return r;
 }
 
