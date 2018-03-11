@@ -122,12 +122,13 @@ struct State {
   u8 oam[0x100]{};    // 0xfe00-0xfe9f
   u8 io[0x100]{};     // 0xff00-0xffff
   u8 op, cb_op;
-  bool ime, ime_delay;
+  bool ime, ime_enable, dispatch;
 };
 
 struct GB {
   explicit GB(Buffer&&, Variant);
   void StepCPU();
+  void DispatchInterrupt();
   void StepPPU();
 
   int Disassemble(u16 addr, char* buffer, size_t size);
@@ -322,7 +323,7 @@ State::State(GB& gb) {
   wram0p = wram;
   wram1p = wram + 0x1000;
   sramp = sram;
-  ime = false;
+  ime = ime_enable = dispatch = false;
 
   std::fill(oam + 0xa0, oam + 0x100, 0xff);
   std::fill(io, io + 0x80, 0xff);
@@ -363,206 +364,237 @@ GB::GB(Buffer&& rom_, Variant variant)
 #define LD_R_OPS(code, r) REG_OPS_N(code, ld_r, r)
 
 void GB::StepCPU() {
-  ++s.op_tick;
-  if (s.op_tick >= 3) {
-
-    if (s.op_tick == 3) {
+  switch (++s.op_tick) {
+    case 1:
+      s.ime = s.ime_enable ? true : s.ime;
+      s.ime_enable = false;
+      break;
+    case 2:
+      s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
+      break;
+    case 3:
       s.op = ReadU8(s.pc++);
-    }
+      // Fallthrough.
+    default:
+      if (s.dispatch) { DispatchInterrupt(); break; }
 
-    switch (s.op) {
-      case 0x00: nop(); break;
-      case 0x01: ld_rr_nn(s.bc); break;
-      case 0x02: ld_mr_r(s.bc, s.a); break;
-      case 0x03: inc_rr(s.bc); break;
-      case 0x04: inc_r(s.b); break;
-      case 0x05: dec_r(s.b); break;
-      case 0x06: ld_r_n(s.b); break;
-      case 0x07: rlca(); break;
-      case 0x08: ld_mnn_sp(); break;
-      case 0x09: add_hl_rr(s.bc); break;
-      case 0x0a: ld_r_mr(s.a, s.bc); break;
-      case 0x0b: dec_rr(s.bc); break;
-      case 0x0c: inc_r(s.c); break;
-      case 0x0d: dec_r(s.c); break;
-      case 0x0e: ld_r_n(s.c); break;
-      case 0x0f: rrca(); break;
-      case 0x10: stop(); break;
-      case 0x11: ld_rr_nn(s.de); break;
-      case 0x12: ld_mr_r(s.de, s.a); break;
-      case 0x13: inc_rr(s.de); break;
-      case 0x14: inc_r(s.d); break;
-      case 0x15: dec_r(s.d); break;
-      case 0x16: ld_r_n(s.d); break;
-      case 0x17: rla(); break;
-      case 0x18: jr_n(); break;
-      case 0x19: add_hl_rr(s.de); break;
-      case 0x1a: ld_r_mr(s.a, s.de); break;
-      case 0x1b: dec_rr(s.de); break;
-      case 0x1c: inc_r(s.e); break;
-      case 0x1d: dec_r(s.e); break;
-      case 0x1e: ld_r_n(s.e); break;
-      case 0x1f: rra(); break;
-      case 0x20: jr_f_n(0x80, 0); break;
-      case 0x21: ld_rr_nn(s.hl); break;
-      case 0x22: ld_mr_r(s.hl, s.a, 1); break;
-      case 0x23: inc_rr(s.hl); break;
-      case 0x24: inc_r(s.h); break;
-      case 0x25: dec_r(s.h); break;
-      case 0x26: ld_r_n(s.h); break;
-      case 0x27: daa(); break;
-      case 0x28: jr_f_n(0x80, 0x80); break;
-      case 0x29: add_hl_rr(s.hl); break;
-      case 0x2a: ld_r_mr(s.a, s.hl, 1); break;
-      case 0x2b: dec_rr(s.hl); break;
-      case 0x2c: inc_r(s.l); break;
-      case 0x2d: dec_r(s.l); break;
-      case 0x2e: ld_r_n(s.l); break;
-      case 0x2f: cpl(); break;
-      case 0x30: jr_f_n(0x10, 0); break;
-      case 0x31: ld_rr_nn(s.sp); break;
-      case 0x32: ld_mr_r(s.hl, s.a, -1); break;
-      case 0x33: inc_rr(s.sp); break;
-      case 0x34: inc_mhl(); break;
-      case 0x35: dec_mhl(); break;
-      case 0x36: ld_mhl_n(); break;
-      case 0x37: scf(); break;
-      case 0x38: jr_f_n(0x10, 0x10); break;
-      case 0x39: add_hl_rr(s.sp); break;
-      case 0x3a: ld_r_mr(s.a, s.hl, -1); break;
-      case 0x3b: dec_rr(s.sp); break;
-      case 0x3c: inc_r(s.a); break;
-      case 0x3d: dec_r(s.a); break;
-      case 0x3e: ld_r_n(s.a); break;
-      case 0x3f: ccf(); break;
-      LD_R_OPS(0x40, s.b)
-      LD_R_OPS(0x48, s.c)
-      LD_R_OPS(0x50, s.d)
-      LD_R_OPS(0x58, s.e)
-      LD_R_OPS(0x60, s.h)
-      LD_R_OPS(0x68, s.l)
-      case 0x70: ld_mr_r(s.hl, s.b); break;
-      case 0x71: ld_mr_r(s.hl, s.c); break;
-      case 0x72: ld_mr_r(s.hl, s.d); break;
-      case 0x73: ld_mr_r(s.hl, s.e); break;
-      case 0x74: ld_mr_r(s.hl, s.h); break;
-      case 0x75: ld_mr_r(s.hl, s.l); break;
-      case 0x76: halt(); break;
-      case 0x77: ld_mr_r(s.hl, s.a); break;
-      LD_R_OPS(0x78, s.a)
-      REG_OPS(0x80, add)
-      REG_OPS(0x88, adc)
-      REG_OPS(0x90, sub)
-      REG_OPS(0x98, sbc)
-      REG_OPS(0xa0, and)
-      REG_OPS(0xa8, xor)
-      REG_OPS(0xb0, or)
-      REG_OPS(0xb8, cp)
-      case 0xc0: ret_f(0x80, 0); break;
-      case 0xc1: pop_rr(s.bc); break;
-      case 0xc2: jp_f_nn(0x80, 0); break;
-      case 0xc3: jp_nn(); break;
-      case 0xc4: call_f_nn(0x80, 0); break;
-      case 0xc5: push_rr(s.bc); break;
-      case 0xc6: add_n(); break;
-      case 0xc7: rst(0x00); break;
-      case 0xc8: ret_f(0x80, 0x80); break;
-      case 0xc9: ret(); break;
-      case 0xca: jp_f_nn(0x80, 0x80); break;
-      case 0xcb: cb(); break;
-      case 0xcc: call_f_nn(0x80, 0x80); break;
-      case 0xcd: call_nn(); break;
-      case 0xce: adc_n(); break;
-      case 0xcf: rst(0x08); break;
-      case 0xd0: ret_f(0x10, 0); break;
-      case 0xd1: pop_rr(s.de); break;
-      case 0xd2: jp_f_nn(0x10, 0); break;
-      case 0xd4: call_f_nn(0x10, 0); break;
-      case 0xd5: push_rr(s.de); break;
-      case 0xd6: sub_n(); break;
-      case 0xd7: rst(0x10); break;
-      case 0xd8: ret_f(0x10, 0x10); break;
-      case 0xd9: reti(); break;
-      case 0xda: jp_f_nn(0x10, 0x10); break;
-      case 0xdc: call_f_nn(0x10, 0x10); break;
-      case 0xde: sbc_n(); break;
-      case 0xdf: rst(0x18); break;
-      case 0xe0: ld_mff00_n_a(); break;
-      case 0xe1: pop_rr(s.hl); break;
-      case 0xe2: ld_mff00_c_a(); break;
-      case 0xe5: push_rr(s.hl); break;
-      case 0xe6: and_n(); break;
-      case 0xe7: rst(0x20); break;
-      case 0xe8: add_sp_n(); break;
-      case 0xe9: jp_hl(); break;
-      case 0xea: ld_mnn_a(); break;
-      case 0xee: xor_n(); break;
-      case 0xef: rst(0x28); break;
-      case 0xf0: ld_a_mff00_n(); break;
-      case 0xf1: pop_rr(s.af); break;
-      case 0xf2: ld_a_mff00_c(); break;
-      case 0xf3: di(); break;
-      case 0xf5: push_rr(s.af); break;
-      case 0xf6: or_n(); break;
-      case 0xf7: rst(0x30); break;
-      case 0xf8: ld_hl_sp_n(); break;
-      case 0xf9: ld_sp_hl(); break;
-      case 0xfa: ld_a_mnn(); break;
-      case 0xfb: ei(); break;
-      case 0xfe: cp_n(); break;
-      case 0xff: rst(0x38); break;
-    }
-
+      switch (s.op) {
+        case 0x00: nop(); break;
+        case 0x01: ld_rr_nn(s.bc); break;
+        case 0x02: ld_mr_r(s.bc, s.a); break;
+        case 0x03: inc_rr(s.bc); break;
+        case 0x04: inc_r(s.b); break;
+        case 0x05: dec_r(s.b); break;
+        case 0x06: ld_r_n(s.b); break;
+        case 0x07: rlca(); break;
+        case 0x08: ld_mnn_sp(); break;
+        case 0x09: add_hl_rr(s.bc); break;
+        case 0x0a: ld_r_mr(s.a, s.bc); break;
+        case 0x0b: dec_rr(s.bc); break;
+        case 0x0c: inc_r(s.c); break;
+        case 0x0d: dec_r(s.c); break;
+        case 0x0e: ld_r_n(s.c); break;
+        case 0x0f: rrca(); break;
+        case 0x10: stop(); break;
+        case 0x11: ld_rr_nn(s.de); break;
+        case 0x12: ld_mr_r(s.de, s.a); break;
+        case 0x13: inc_rr(s.de); break;
+        case 0x14: inc_r(s.d); break;
+        case 0x15: dec_r(s.d); break;
+        case 0x16: ld_r_n(s.d); break;
+        case 0x17: rla(); break;
+        case 0x18: jr_n(); break;
+        case 0x19: add_hl_rr(s.de); break;
+        case 0x1a: ld_r_mr(s.a, s.de); break;
+        case 0x1b: dec_rr(s.de); break;
+        case 0x1c: inc_r(s.e); break;
+        case 0x1d: dec_r(s.e); break;
+        case 0x1e: ld_r_n(s.e); break;
+        case 0x1f: rra(); break;
+        case 0x20: jr_f_n(0x80, 0); break;
+        case 0x21: ld_rr_nn(s.hl); break;
+        case 0x22: ld_mr_r(s.hl, s.a, 1); break;
+        case 0x23: inc_rr(s.hl); break;
+        case 0x24: inc_r(s.h); break;
+        case 0x25: dec_r(s.h); break;
+        case 0x26: ld_r_n(s.h); break;
+        case 0x27: daa(); break;
+        case 0x28: jr_f_n(0x80, 0x80); break;
+        case 0x29: add_hl_rr(s.hl); break;
+        case 0x2a: ld_r_mr(s.a, s.hl, 1); break;
+        case 0x2b: dec_rr(s.hl); break;
+        case 0x2c: inc_r(s.l); break;
+        case 0x2d: dec_r(s.l); break;
+        case 0x2e: ld_r_n(s.l); break;
+        case 0x2f: cpl(); break;
+        case 0x30: jr_f_n(0x10, 0); break;
+        case 0x31: ld_rr_nn(s.sp); break;
+        case 0x32: ld_mr_r(s.hl, s.a, -1); break;
+        case 0x33: inc_rr(s.sp); break;
+        case 0x34: inc_mhl(); break;
+        case 0x35: dec_mhl(); break;
+        case 0x36: ld_mhl_n(); break;
+        case 0x37: scf(); break;
+        case 0x38: jr_f_n(0x10, 0x10); break;
+        case 0x39: add_hl_rr(s.sp); break;
+        case 0x3a: ld_r_mr(s.a, s.hl, -1); break;
+        case 0x3b: dec_rr(s.sp); break;
+        case 0x3c: inc_r(s.a); break;
+        case 0x3d: dec_r(s.a); break;
+        case 0x3e: ld_r_n(s.a); break;
+        case 0x3f: ccf(); break;
+        LD_R_OPS(0x40, s.b)
+        LD_R_OPS(0x48, s.c)
+        LD_R_OPS(0x50, s.d)
+        LD_R_OPS(0x58, s.e)
+        LD_R_OPS(0x60, s.h)
+        LD_R_OPS(0x68, s.l)
+        case 0x70: ld_mr_r(s.hl, s.b); break;
+        case 0x71: ld_mr_r(s.hl, s.c); break;
+        case 0x72: ld_mr_r(s.hl, s.d); break;
+        case 0x73: ld_mr_r(s.hl, s.e); break;
+        case 0x74: ld_mr_r(s.hl, s.h); break;
+        case 0x75: ld_mr_r(s.hl, s.l); break;
+        case 0x76: halt(); break;
+        case 0x77: ld_mr_r(s.hl, s.a); break;
+        LD_R_OPS(0x78, s.a)
+        REG_OPS(0x80, add)
+        REG_OPS(0x88, adc)
+        REG_OPS(0x90, sub)
+        REG_OPS(0x98, sbc)
+        REG_OPS(0xa0, and)
+        REG_OPS(0xa8, xor)
+        REG_OPS(0xb0, or)
+        REG_OPS(0xb8, cp)
+        case 0xc0: ret_f(0x80, 0); break;
+        case 0xc1: pop_rr(s.bc); break;
+        case 0xc2: jp_f_nn(0x80, 0); break;
+        case 0xc3: jp_nn(); break;
+        case 0xc4: call_f_nn(0x80, 0); break;
+        case 0xc5: push_rr(s.bc); break;
+        case 0xc6: add_n(); break;
+        case 0xc7: rst(0x00); break;
+        case 0xc8: ret_f(0x80, 0x80); break;
+        case 0xc9: ret(); break;
+        case 0xca: jp_f_nn(0x80, 0x80); break;
+        case 0xcb: cb(); break;
+        case 0xcc: call_f_nn(0x80, 0x80); break;
+        case 0xcd: call_nn(); break;
+        case 0xce: adc_n(); break;
+        case 0xcf: rst(0x08); break;
+        case 0xd0: ret_f(0x10, 0); break;
+        case 0xd1: pop_rr(s.de); break;
+        case 0xd2: jp_f_nn(0x10, 0); break;
+        case 0xd4: call_f_nn(0x10, 0); break;
+        case 0xd5: push_rr(s.de); break;
+        case 0xd6: sub_n(); break;
+        case 0xd7: rst(0x10); break;
+        case 0xd8: ret_f(0x10, 0x10); break;
+        case 0xd9: reti(); break;
+        case 0xda: jp_f_nn(0x10, 0x10); break;
+        case 0xdc: call_f_nn(0x10, 0x10); break;
+        case 0xde: sbc_n(); break;
+        case 0xdf: rst(0x18); break;
+        case 0xe0: ld_mff00_n_a(); break;
+        case 0xe1: pop_rr(s.hl); break;
+        case 0xe2: ld_mff00_c_a(); break;
+        case 0xe5: push_rr(s.hl); break;
+        case 0xe6: and_n(); break;
+        case 0xe7: rst(0x20); break;
+        case 0xe8: add_sp_n(); break;
+        case 0xe9: jp_hl(); break;
+        case 0xea: ld_mnn_a(); break;
+        case 0xee: xor_n(); break;
+        case 0xef: rst(0x28); break;
+        case 0xf0: ld_a_mff00_n(); break;
+        case 0xf1: pop_rr(s.af); break;
+        case 0xf2: ld_a_mff00_c(); break;
+        case 0xf3: di(); break;
+        case 0xf5: push_rr(s.af); break;
+        case 0xf6: or_n(); break;
+        case 0xf7: rst(0x30); break;
+        case 0xf8: ld_hl_sp_n(); break;
+        case 0xf9: ld_sp_hl(); break;
+        case 0xfa: ld_a_mnn(); break;
+        case 0xfb: ei(); break;
+        case 0xfe: cp_n(); break;
+        case 0xff: rst(0x38); break;
+      }
+      break;
   }
   ++s.tick;
 }
 
 void GB::cb() {
-  if (s.op_tick >= 3) {
-    if (s.op_tick == 3) {
+  switch (s.op_tick) {
+    case 4: case 5: case 6:
+      break;
+    case 7:
       s.cb_op = ReadU8(s.pc++);
-    }
-
-    switch (s.cb_op) {
-      REG_OPS(0x00, rlc)
-      REG_OPS(0x08, rrc)
-      REG_OPS(0x10, rl)
-      REG_OPS(0x18, rr)
-      REG_OPS(0x20, sla)
-      REG_OPS(0x28, sra)
-      REG_OPS(0x30, swap)
-      REG_OPS(0x38, srl)
-      REG_OPS_N(0x40, bit, 0)
-      REG_OPS_N(0x48, bit, 1)
-      REG_OPS_N(0x50, bit, 2)
-      REG_OPS_N(0x58, bit, 3)
-      REG_OPS_N(0x60, bit, 4)
-      REG_OPS_N(0x68, bit, 5)
-      REG_OPS_N(0x70, bit, 6)
-      REG_OPS_N(0x78, bit, 7)
-      REG_OPS_N(0x80, res, 0)
-      REG_OPS_N(0x88, res, 1)
-      REG_OPS_N(0x90, res, 2)
-      REG_OPS_N(0x98, res, 3)
-      REG_OPS_N(0xa0, res, 4)
-      REG_OPS_N(0xa8, res, 5)
-      REG_OPS_N(0xb0, res, 6)
-      REG_OPS_N(0xb8, res, 7)
-      REG_OPS_N(0xc0, set, 0)
-      REG_OPS_N(0xc8, set, 1)
-      REG_OPS_N(0xd0, set, 2)
-      REG_OPS_N(0xd8, set, 3)
-      REG_OPS_N(0xe0, set, 4)
-      REG_OPS_N(0xe8, set, 5)
-      REG_OPS_N(0xf0, set, 6)
-      REG_OPS_N(0xf8, set, 7)
-    }
+      // Fallthrough.
+    default:
+      switch (s.cb_op) {
+        REG_OPS(0x00, rlc)
+        REG_OPS(0x08, rrc)
+        REG_OPS(0x10, rl)
+        REG_OPS(0x18, rr)
+        REG_OPS(0x20, sla)
+        REG_OPS(0x28, sra)
+        REG_OPS(0x30, swap)
+        REG_OPS(0x38, srl)
+        REG_OPS_N(0x40, bit, 0)
+        REG_OPS_N(0x48, bit, 1)
+        REG_OPS_N(0x50, bit, 2)
+        REG_OPS_N(0x58, bit, 3)
+        REG_OPS_N(0x60, bit, 4)
+        REG_OPS_N(0x68, bit, 5)
+        REG_OPS_N(0x70, bit, 6)
+        REG_OPS_N(0x78, bit, 7)
+        REG_OPS_N(0x80, res, 0)
+        REG_OPS_N(0x88, res, 1)
+        REG_OPS_N(0x90, res, 2)
+        REG_OPS_N(0x98, res, 3)
+        REG_OPS_N(0xa0, res, 4)
+        REG_OPS_N(0xa8, res, 5)
+        REG_OPS_N(0xb0, res, 6)
+        REG_OPS_N(0xb8, res, 7)
+        REG_OPS_N(0xc0, set, 0)
+        REG_OPS_N(0xc8, set, 1)
+        REG_OPS_N(0xd0, set, 2)
+        REG_OPS_N(0xd8, set, 3)
+        REG_OPS_N(0xe0, set, 4)
+        REG_OPS_N(0xe8, set, 5)
+        REG_OPS_N(0xf0, set, 6)
+        REG_OPS_N(0xf8, set, 7)
+      }
+      break;
   }
 }
 
 #undef REG_OPS
 #undef REG_OPS_N
 #undef LD_R_OPS
+
+void GB::DispatchInterrupt() {
+  switch (s.op_tick) {
+    case 7: WriteU8(--s.sp, s.pc >> 8); break;
+    case 8: {
+      u8& if_ = s.io[IF];
+      u8 intr = if_ & s.io[IE] & 0x1f;
+      s.wz = 0;
+      for (int i = 0; i < 5; ++i) {
+        if (if_ & (1 << i)) {
+          if_ &= ~(1 << i);
+          s.wz = 0x40 + (i << 3);
+          break;
+        }
+      }
+      break;
+    }
+    case 11: WriteU8(--s.sp, s.pc); s.pc = s.wz; break;
+    case 20: s.op_tick = 0; break;
+  }
+}
 
 u8 GB::ReadU8(u16 addr) {
   switch (addr >> 12) {
@@ -861,17 +893,27 @@ void GB::dec_r(u8& r) {
 
 void GB::di() {
   switch (s.op_tick) {
-    case 4: s.ime_delay = s.ime = false; s.op_tick = 0; break;
+    case 4: s.ime_enable = s.ime = false; s.op_tick = 0; break;
   }
 }
 
 void GB::ei() {
   switch (s.op_tick) {
-    case 4: s.ime_delay = true; s.op_tick = 0; break;
+    case 4: s.ime_enable = true; s.op_tick = 0; break;
   }
 }
 
-void GB::halt() {}
+void GB::halt() {
+  if (((s.op_tick & 3) == 0) && (s.io[IF] & s.io[IE] & 0x1f)) {
+    s.op = ReadU8(s.pc);
+    if (s.ime) {
+      s.dispatch = true;
+    } else if (s.op_tick > 4) {
+      s.pc++;
+    }
+    s.op_tick = 4;
+  }
+}
 
 u8 GB::inc(u8 r) {
   int res = r + 1;
@@ -1146,7 +1188,7 @@ void GB::ret_f(u8 mask, u8 val) {
 
 void GB::reti() {
   switch (s.op_tick) {
-    case 4: s.ime_delay = false; s.ime = true;
+    case 4: s.ime_enable = false; s.ime = true;
     case 7: s.z = ReadU8(s.sp++); break;
     case 11: s.w = ReadU8(s.sp++); break;
     case 12: s.pc = s.wz; break;
