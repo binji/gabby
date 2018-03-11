@@ -157,8 +157,9 @@ struct GB {
   void and_mr(u16 mr);
   void and_n();
   void and_r(u8 r);
-  void bit_r(u8 r, int n);
-  void bit_mr(u16 mr, int n);
+  void bit(int n, u8 r);
+  void bit_r(int n, u8 r);
+  void bit_mr(int n, u16 mr);
   void call_f_nn(u8 mask, u8 val);
   void call_nn();
   void cb();
@@ -777,16 +778,18 @@ void GB::and_r(u8 r) {
   }
 }
 
-void GB::bit_r(u8 r, int n) {
+void GB::bit(int n, u8 r) { s.f = (s.f & 0x10) | zflag(r & (1 << n)) | 0x20; }
+
+void GB::bit_r(int n, u8 r) {
   switch (s.op_tick) {
-    case 8: s.f = zflag(r & (1 << n)) | 0x20; s.op_tick = 0; break;
+    case 8: bit(n, r); s.op_tick = 0; break;
   }
 }
 
-void GB::bit_mr(u16 mr, int n) {
+void GB::bit_mr(int n, u16 mr) {
   switch (s.op_tick) {
-    case 11: s.z = ReadU8(s.pc++); break;
-    case 12: s.f = zflag(s.z & (1 << n)) | 0x20; s.op_tick = 0; break;
+    case 11: s.z = ReadU8(mr); break;
+    case 12: bit(n, s.z); s.op_tick = 0; break;
   }
 }
 
@@ -1193,7 +1196,7 @@ void GB::ret_f(u8 mask, u8 val) {
 
 void GB::reti() {
   switch (s.op_tick) {
-    case 4: s.ime_enable = false; s.ime = true;
+    case 4: s.ime_enable = false; s.ime = true; break;
     case 7: s.z = ReadU8(s.sp++); break;
     case 11: s.w = ReadU8(s.sp++); break;
     case 12: s.pc = s.wz; break;
@@ -1209,8 +1212,8 @@ u8 GB::rl(u8 x) {
 }
 
 u8 GB::rlc(u8 x) {
-  u8 c = (s.a >> 3) & 0x10;
-  u8 r = (s.a << 1) | (c >> 4);
+  u8 c = (x >> 3) & 0x10;
+  u8 r = (x << 1) | (c >> 4);
   s.f = zflag(r) | c;
   return r;
 }
@@ -1311,8 +1314,8 @@ void GB::rr_mr(u16 mr) {
 
 void GB::rst(u8 n) {
   switch (s.op_tick) {
-    case 11: WriteU8(s.sp--, s.pc >> 8); break;
-    case 15: WriteU8(s.sp--, s.pc); s.pc = n; break;
+    case 11: WriteU8(--s.sp, s.pc >> 8); break;
+    case 15: WriteU8(--s.sp, s.pc); s.pc = n; break;
     case 16: s.op_tick = 0; break;
   }
 }
@@ -1393,7 +1396,7 @@ u8 GB::sra(u8 x) {
 
 void GB::sra_r(u8& r) {
   switch (s.op_tick) {
-    case 8: r = sla(r); s.op_tick = 0; break;
+    case 8: r = sra(r); s.op_tick = 0; break;
   }
 }
 
