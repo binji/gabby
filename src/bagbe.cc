@@ -108,7 +108,7 @@ struct GB;
 struct State {
   explicit State(GB&);
 
-  Tick tick, op_tick;
+  Tick tick, op_tick, ppu_line_tick;
   union { struct { u8 f, a; }; u16 af; };
   union { struct { u8 c, b; }; u16 bc; };
   union { struct { u8 e, d; }; u16 de; };
@@ -309,7 +309,7 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 }
 
 State::State(GB& gb) {
-  tick = op_tick = 0;
+  tick = op_tick = ppu_line_tick = 0;
   af = 0x01b0;
   bc = 0x0013;
   de = 0x00d8;
@@ -651,6 +651,7 @@ void GB::WriteU8(u16 addr, u8 value) {
           u8& byte = s.io[addr & 0xff];
           u8 mask = dmg_io_mask[addr & 0xff];
           byte = (byte & ~mask) | (value & mask);
+          // TODO(binji): handle various io write behaviors.
           break;
         }
       }
@@ -1487,6 +1488,41 @@ void GB::xor_r(u8 r) {
 }
 
 void GB::StepPPU() {
+  if (!(s.io[LCDC] & 0x80)) {
+    return;
+  }
+  u8& if_ = s.io[IF];
+  u8& stat = s.io[STAT];
+  u8& ly = s.io[LY];
+
+  // TODO(binji): proper timing.
+  s.ppu_line_tick++;
+  if (ly < 144) {
+    if (s.ppu_line_tick == 80) {
+      stat = (stat & ~3) | 3;
+    } else if (s.ppu_line_tick == 80 + 172) {
+      stat = (stat & ~3) | 0;
+      if (stat & 0x08) { if_ |= 2; }
+    }
+  }
+  if (s.ppu_line_tick == 456) {
+    switch (++ly) {
+      case 144:
+        stat = (stat & ~3) | 1;
+        if (stat & 0x10) { if_ |= 2; }
+        if_ |= 1;
+        break;
+      case 154:
+        ly = 0;
+        // Fallthrough.
+      default:
+        stat = (stat & ~3) | 2;
+        if (stat & 0x20) { if_ |= 2; }
+        break;
+    }
+    if ((stat & 0x40) && ly == s.io[LYC]) { if_ |= 2; }
+    s.ppu_line_tick = 0;
+  }
 }
 
 
@@ -1699,7 +1735,7 @@ int main(int argc, char** argv) {
 
     GB gb(ReadFile(argv[1]), Variant::Guess);
 
-    for (int i = 0; i < 1024; ++i) {
+    for (int i = 0; i < 2048; ++i) {
       gb.Trace();
       gb.StepCPU();
       gb.StepPPU();
