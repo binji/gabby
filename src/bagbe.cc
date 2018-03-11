@@ -309,7 +309,7 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 
 State::State(GB& gb) {
   tick = op_tick = 0;
-  af = 0xb001;
+  af = 0x01b0;
   bc = 0x0013;
   de = 0x00d8;
   hl = 0x014d;
@@ -713,8 +713,8 @@ void GB::call_f_nn(u8 mask, u8 val) {
     case 7: s.z = ReadU8(s.pc++); break;
     case 11: s.w = ReadU8(s.pc++); break;
     case 12: f_is(mask, val); break;
-    case 19: WriteU8(s.sp--, s.pc >> 8); break;
-    case 23: WriteU8(s.sp--, s.pc); s.pc = s.wz; break;
+    case 19: WriteU8(--s.sp, s.pc >> 8); break;
+    case 23: WriteU8(--s.sp, s.pc); s.pc = s.wz; break;
     case 24: s.op_tick = 0; break;
   }
 }
@@ -723,9 +723,9 @@ void GB::call_nn() {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(s.pc++); break;
     case 11: s.w = ReadU8(s.pc++); break;
-    case 15: WriteU8(s.sp--, s.pc >> 8); break;
-    case 19: WriteU8(s.sp--, s.pc); s.pc = s.wz; break;
-    case 20: s.op_tick = 0; break;
+    case 19: WriteU8(--s.sp, s.pc >> 8); break;
+    case 23: WriteU8(--s.sp, s.pc); s.pc = s.wz; break;
+    case 24: s.op_tick = 0; break;
   }
 }
 
@@ -872,7 +872,8 @@ void GB::jp_nn() {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(s.pc++); break;
     case 11: s.w = ReadU8(s.pc++); break;
-    case 12: s.pc = s.wz; s.op_tick = 0; break;
+    case 12: s.pc = s.wz; break;
+    case 16: s.pc = s.wz; s.op_tick = 0; break;
   }
 }
 
@@ -887,7 +888,8 @@ void GB::jr_f_n(u8 mask, u8 val) {
 void GB::jr_n() {
   switch (s.op_tick) {
     case 7: s.z = ReadU8(s.pc++); break;
-    case 8: s.pc += (s8)s.z; s.op_tick = 0; break;
+    case 8: s.pc += (s8)s.z; break;
+    case 12: s.op_tick = 0; break;
   }
 }
 
@@ -1021,7 +1023,7 @@ void GB::nop() {
 }
 
 u8 GB::or_(u8 x) {
-  u8 r = s.a | s.z;
+  u8 r = s.a | x;
   s.f = zflag(s.a);
   return r;
 }
@@ -1057,8 +1059,8 @@ void GB::pop_rr(u16& rr) {
 
 void GB::push_rr(u16 rr) {
   switch (s.op_tick) {
-    case 11: WriteU8(s.sp--, rr >> 8); break;
-    case 15: WriteU8(s.sp--, rr); break;
+    case 11: WriteU8(--s.sp, rr >> 8); break;
+    case 15: WriteU8(--s.sp, rr); break;
     case 16: s.op_tick = 0; break;
   }
 }
@@ -1569,16 +1571,16 @@ void GB::PrintInstruction(u16 addr) {
 }
 
 void GB::Trace() {
-  printf("a:%02x f:%c%c%c%c bc:%04x de:%04x hl:%04x sp:%04x pc:%04x", s.a,
-         (s.f & 0x80) ? 'z' : '-', (s.f & 0x40) ? 'n' : '-',
-         (s.f & 0x20) ? 'h' : '-', (s.f & 0x10) ? 'c' : '-', s.bc, s.de, s.hl,
-         s.sp, s.pc);
-  printf(" (t: %" PRIu64"/%" PRIu64 ")", s.op_tick, s.tick);
-  printf(" |");
   if (s.op_tick == 0) {
+    printf("a:%02x f:%c%c%c%c bc:%04x de:%04x hl:%04x sp:%04x pc:%04x", s.a,
+           (s.f & 0x80) ? 'z' : '-', (s.f & 0x40) ? 'n' : '-',
+           (s.f & 0x20) ? 'h' : '-', (s.f & 0x10) ? 'c' : '-', s.bc, s.de, s.hl,
+           s.sp, s.pc);
+    printf(" (t: %2" PRIu64"/%10" PRIu64 ")", s.op_tick, s.tick);
+    printf(" |");
     PrintInstruction(s.pc);
+    printf("\n");
   }
-  printf("\n");
 }
 
 
