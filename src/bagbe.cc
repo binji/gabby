@@ -614,8 +614,6 @@ void GB::DispatchInterrupt() {
       s.wz = 0;
       for (int i = 0; i < 5; ++i) {
         if (intr & (1 << i)) {
-          printf("%s: i: %d IF:%02x IE:%02x STAT:%02x\n", __func__, i, s.io[IF],
-                 s.io[IE], s.io[STAT]);
           s.io[IF] &= ~(1 << i);
           s.wz = 0x40 + (i << 3);
           break;
@@ -1623,15 +1621,14 @@ void GB::StepPPU() {
     case 0:
     case 1:
       if (s.ppu_line_tick == 456) {
-        switch (++ly) {
-          case 144:
-            SetPPUMode(1);
-            break;
-          case 154:
-            SetPPUMode(2);
-            s.ppu_pixel = s.ppu_buffer;
-            ly = 0;
-            break;
+        ++ly;
+        if (ly < 144) {
+          SetPPUMode(2);
+        } else if (ly == 144) {
+          SetPPUMode(1);
+        } else if (ly == 154) {
+          s.ppu_pixel = s.ppu_buffer;
+          ly = 0;
         }
         stat = (stat & ~4) | (!!(ly == s.io[LYC]) << 2);
         if ((stat & 0x44) == 0x44) { s.io[IF] |= 2; }
