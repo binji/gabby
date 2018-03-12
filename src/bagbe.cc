@@ -1646,7 +1646,7 @@ void GB::StepPPU_Mode2() {
   if (++s.ppu_mode_tick == 80) {
     SetPPUMode(3);
     s.ppu_line_x = 0;
-    s.ppu_stall = 6 + (s.io[SCX] & 7);
+    s.ppu_stall = 14 + (s.io[SCX] & 7);
   }
 }
 
@@ -1654,7 +1654,8 @@ void GB::StepPPU_Mode3() {
   // TODO: window
   if (s.ppu_stall > 0) {
     --s.ppu_stall;
-  } else {
+  }
+  if (s.ppu_stall == 0) {
     u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
     *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
     s.ppu_tile[0] <<= 1;
@@ -1682,7 +1683,7 @@ void GB::StepPPU_Mode3() {
       if (s.io[LCDC] & 0x10) {
         s.ppu_tile_addr |= (s.ppu_map << 4);
       } else {
-        s.ppu_tile_addr |= (0x1000 - (s.ppu_map << 4));
+        s.ppu_tile_addr |= (0x1000 + ((s16)(s8)s.ppu_map << 4));
       }
       s.ppu_next_tile[0] = s.vram[s.ppu_tile_addr++];
       break;
@@ -1962,7 +1963,7 @@ int main(int argc, char** argv) {
 
     GB gb(ReadFile(argv[1]), Variant::Guess);
 
-    int frames = 20;
+    int frames = 40;
 
     for (Tick i = 0; i < frames * 70224u; ++i) {
 #if TRACE
