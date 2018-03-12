@@ -122,7 +122,7 @@ struct State {
 
   u16 ppu_line_tick, ppu_map_addr, ppu_tile_addr;
   u8 ppu_mode, ppu_mode_tick, ppu_stall;
-  s16 ppu_line_x;
+  u8 ppu_line_x, ppu_line_y;
   u8 ppu_map, ppu_tile[2], ppu_next_tile[2];
   u8 ppu_buffer[160 * 144], *ppu_pixel;
 
@@ -149,6 +149,7 @@ struct GB {
   void StepPPU_Mode2();
   void StepPPU_Mode3();
   void SetPPUMode(u8 mode);
+  void CheckLyLyc();
 
   int Disassemble(u16 addr, char* buffer, size_t size);
   void PrintInstruction(u16 addr);
@@ -752,11 +753,12 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
     case DIV: s.io[DIV] = s.div = 0; break;
     case LCDC:
       if ((old ^ byte) & 0x80) {
-        s.ppu_line_tick = s.ppu_mode_tick = s.ppu_line_x = 0;
+        s.ppu_line_tick = s.ppu_mode_tick = s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = 2;
         s.io[LY] = 0;
         s.io[STAT] &= ~7;
+        CheckLyLyc();
       }
       break;
   }
@@ -1001,7 +1003,7 @@ void GB::ei() {
 }
 
 void GB::halt() {
-  if (((s.op_tick & 3) == 0) && (s.io[IF] & s.io[IE] & 0x1f)) {
+  if (((s.op_tick & 3) == 3) && (s.io[IF] & s.io[IE] & 0x1f)) {
     s.op = ReadU8(s.pc);
     if (s.ime) {
       s.dispatch = true;
@@ -1616,22 +1618,27 @@ void GB::StepPPU() {
   u8& stat = s.io[STAT];
 
   // TODO: proper timing.
-  s.ppu_line_tick++;
+  ++s.ppu_line_tick;
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (s.ppu_line_tick == 456) {
+      if (s.ppu_line_tick == 452) {
         ++ly;
-        if (ly < 144) {
+        CheckLyLyc();
+      } else if (s.ppu_line_tick == 456) {
+        ++s.ppu_line_y;
+        if (s.ppu_line_y < 144) {
           SetPPUMode(2);
-        } else if (ly == 144) {
+        } else if (s.ppu_line_y == 144) {
           SetPPUMode(1);
-        } else if (ly == 154) {
-          s.ppu_pixel = s.ppu_buffer;
+        } else if (s.ppu_line_y == 153) {
           ly = 0;
+          CheckLyLyc();
+        } else if (s.ppu_line_y == 154) {
+          s.ppu_pixel = s.ppu_buffer;
+          s.ppu_line_y = ly = 0;
+          SetPPUMode(2);
         }
-        stat = (stat & ~4) | (!!(ly == s.io[LYC]) << 2);
-        if ((stat & 0x44) == 0x44) { s.io[IF] |= 2; }
         s.ppu_line_tick = 0;
       }
       break;
@@ -1658,18 +1665,19 @@ void GB::StepPPU_Mode3() {
   if (s.ppu_stall == 0) {
     u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
     *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
-    s.ppu_tile[0] <<= 1;
-    s.ppu_tile[1] <<= 1;
 
     if (++s.ppu_line_x == 160) {
       SetPPUMode(0);
     }
   }
 
+  s.ppu_tile[0] <<= 1;
+  s.ppu_tile[1] <<= 1;
+
   switch (s.ppu_mode_tick++) {
     case 0: {
       s.ppu_map_addr = 0x1800 | ((s.io[LCDC] & 8) << 7) |
-                       (((s.io[LY] + s.io[SCY]) & 0xf8) << 2) |
+                       (((s.ppu_line_y + s.io[SCY]) & 0xf8) << 2) |
                        ((s.io[SCX] & 0xf8) >> 3);
       s.ppu_map = s.vram[s.ppu_map_addr];
       break;
@@ -1679,7 +1687,7 @@ void GB::StepPPU_Mode3() {
     case 62: case 70: case 78: case 86: case 94: case 102: case 110: case 118:
     case 126: case 134: case 142: case 150: case 158: case 166: case 174:
       // Fetch plane 0.
-      s.ppu_tile_addr = ((s.io[LY] + s.io[SCY]) & 0x7) << 1;
+      s.ppu_tile_addr = ((s.ppu_line_y + s.io[SCY]) & 0x7) << 1;
       if (s.io[LCDC] & 0x10) {
         s.ppu_tile_addr |= (s.ppu_map << 4);
       } else {
@@ -1724,6 +1732,13 @@ void GB::SetPPUMode(u8 mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
     case 1: if (stat & 0x10) { if_ |= 2; } if_ |= 1; break;
     case 2: if (stat & 0x20) { if_ |= 2; } break;
+  }
+}
+
+void GB::CheckLyLyc() {
+  s.io[STAT] = (s.io[STAT] & ~4) | (!!(s.io[LY] == s.io[LYC]) << 2);
+  if ((s.io[STAT] & 0x44) == 0x44) {
+    s.io[IF] |= 2;
   }
 }
 
@@ -1961,9 +1976,12 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    GB gb(ReadFile(argv[1]), Variant::Guess);
+    int frames = 60;
+    if (argc >= 3) {
+      frames = std::stoi(argv[2]);
+    }
 
-    int frames = 40;
+    GB gb(ReadFile(argv[1]), Variant::Guess);
 
     for (Tick i = 0; i < frames * 70224u; ++i) {
 #if TRACE
