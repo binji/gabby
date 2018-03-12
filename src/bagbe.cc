@@ -18,6 +18,8 @@
 #include <utility>
 #include <vector>
 
+#define TRACE 0
+
 using s8 = int8_t;
 using s16 = int16_t;
 using s32 = int32_t;
@@ -110,6 +112,7 @@ struct State {
 
   Tick tick = 0, op_tick = 0, ppu_line_tick = 0;
   u8 op = 0, cb_op = 0;
+  u16 div = 0xac00;
   union { struct { u8 f, a; }; u16 af; };
   union { struct { u8 c, b; }; u16 bc; };
   union { struct { u8 e, d; }; u16 de; };
@@ -131,6 +134,7 @@ struct GB {
   explicit GB(Buffer&&, Variant);
   void StepCPU();
   void DispatchInterrupt();
+  void StepTimer();
   void StepPPU();
 
   int Disassemble(u16 addr, char* buffer, size_t size);
@@ -720,6 +724,10 @@ void GB::WriteU8IO(u8 addr, u8 val) {
   byte = (byte & ~mask) | (val & mask);
 
   switch (addr) {
+#if !TRACE
+    case SB: printf("%c", val); fflush(stdout); break;
+#endif
+    case DIV: s.io[DIV] = s.div = 0; break;
     case LCDC: s.io[LY] = 0; s.ppu_line_tick = 0; break;
   }
 }
@@ -970,7 +978,7 @@ void GB::halt() {
     } else if (s.op_tick > 4) {
       s.pc++;
     }
-    s.op_tick = 4;
+    s.op_tick = 3;
   }
 }
 
@@ -1554,6 +1562,22 @@ void GB::xor_r(u8 r) {
   }
 }
 
+void GB::StepTimer() {
+  u16 old_div = s.div;
+  ++s.div;
+  s.io[DIV] = s.div >> 8;
+  if (!(s.io[TAC] & 4)) {
+    return;
+  }
+  static const u16 tima_mask[] = {1 << 9, 1 << 3, 1 << 5, 1 << 7};
+  if (((old_div ^ s.div) & ~s.div) & tima_mask[s.io[TAC] & 3]) {
+    if (++s.io[TIMA] == 0) {
+      s.io[TIMA] = s.io[TMA];
+      s.io[IF] |= 4;
+    }
+  }
+}
+
 void GB::StepPPU() {
   if (!(s.io[LCDC] & 0x80)) {
     return;
@@ -1762,15 +1786,11 @@ void GB::PrintInstruction(u16 addr) {
 
 void GB::Trace() {
   if (s.op_tick == 0) {
-    printf("a:%02x f:%c%c%c%c bc:%04x de:%04x hl:%04x sp:%04x pc:%04x", s.a,
-           (s.f & 0x80) ? 'z' : '-', (s.f & 0x40) ? 'n' : '-',
-           (s.f & 0x20) ? 'h' : '-', (s.f & 0x10) ? 'c' : '-', s.bc, s.de, s.hl,
+    printf("A:%02X F:%c%c%c%c BC:%04X DE:%04x HL:%04x SP:%04x PC:%04x", s.a,
+           (s.f & 0x80) ? 'Z' : '-', (s.f & 0x40) ? 'N' : '-',
+           (s.f & 0x20) ? 'H' : '-', (s.f & 0x10) ? 'C' : '-', s.bc, s.de, s.hl,
            s.sp, s.pc);
-#if 0
-    printf(" (t: %2" PRIu64"/%10" PRIu64 ")", s.op_tick, s.tick);
-#else
     printf(" (cy: %" PRIu64 ")", s.tick);
-#endif
     printf(" |");
     PrintInstruction(s.pc);
     printf("\n");
@@ -1806,9 +1826,12 @@ int main(int argc, char** argv) {
 
     GB gb(ReadFile(argv[1]), Variant::Guess);
 
-    for (int i = 0; i < 3565492; ++i) {
+    while (true) {
+#if TRACE
       gb.Trace();
+#endif
       gb.StepCPU();
+      gb.StepTimer();
       gb.StepPPU();
     }
 
