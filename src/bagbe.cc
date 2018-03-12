@@ -1447,9 +1447,9 @@ void GB::sla_r(u8& r) {
 
 void GB::sla_mr(u16 mr) {
   switch (s.op_tick) {
-    case 7: s.z = ReadU8(mr); break;
-    case 11: WriteU8(mr, sla(s.z)); break;
-    case 12: s.op_tick = 0; break;
+    case 11: s.z = ReadU8(mr); break;
+    case 15: WriteU8(mr, sla(s.z)); break;
+    case 16: s.op_tick = 0; break;
   }
 }
 
@@ -1468,9 +1468,9 @@ void GB::sra_r(u8& r) {
 
 void GB::sra_mr(u16 mr) {
   switch (s.op_tick) {
-    case 7: s.z = ReadU8(mr); break;
-    case 11: WriteU8(mr, sra(s.z)); break;
-    case 12: s.op_tick = 0; break;
+    case 11: s.z = ReadU8(mr); break;
+    case 15: WriteU8(mr, sra(s.z)); break;
+    case 16: s.op_tick = 0; break;
   }
 }
 
@@ -1489,9 +1489,9 @@ void GB::srl_r(u8& r) {
 
 void GB::srl_mr(u16 mr) {
   switch (s.op_tick) {
-    case 7: s.z = ReadU8(mr); break;
-    case 11: WriteU8(mr, srl(s.z)); break;
-    case 12: s.op_tick = 0; break;
+    case 11: s.z = ReadU8(mr); break;
+    case 15: WriteU8(mr, srl(s.z)); break;
+    case 16: s.op_tick = 0; break;
   }
 }
 
@@ -1531,9 +1531,9 @@ void GB::swap_r(u8& r) {
 
 void GB::swap_mr(u16 mr) {
   switch (s.op_tick) {
-    case 7: s.z = ReadU8(mr); break;
-    case 11: WriteU8(mr, swap(s.z)); break;
-    case 12: s.op_tick = 0; break;
+    case 11: s.z = ReadU8(mr); break;
+    case 15: WriteU8(mr, swap(s.z)); break;
+    case 16: s.op_tick = 0; break;
   }
 }
 
