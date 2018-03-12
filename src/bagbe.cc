@@ -110,32 +110,45 @@ struct GB;
 struct State {
   explicit State(GB&);
 
-  Tick tick = 0, op_tick = 0, ppu_line_tick = 0;
-  u8 op = 0, cb_op = 0;
-  u16 div = 0xac00;
+  Tick tick, op_tick;
   union { struct { u8 f, a; }; u16 af; };
   union { struct { u8 c, b; }; u16 bc; };
   union { struct { u8 e, d; }; u16 de; };
   union { struct { u8 l, h; }; u16 hl; };
   union { struct { u8 z, w; }; u16 wz; };
-  u16 sp = 0, pc = 0;
+  u16 sp, pc;
+
+  u8 op, cb_op;
+
+  u16 ppu_line_tick, ppu_map_addr, ppu_tile_addr;
+  u8 ppu_mode, ppu_mode_tick, ppu_stall;
+  s16 ppu_line_x;
+  u8 ppu_map, ppu_tile[2], ppu_next_tile[2];
+  u8 ppu_buffer[160 * 144], *ppu_pixel;
+
+  u16 div;
+  bool ime, ime_enable, dispatch;
+  bool sram_enabled;
+  u8 mbc_2xxx, mbc_3xxx, mbc_23xxx, mbc_45xxx, mbc_mode;
+
   u8 *rom0p, *rom1p, *vramp, *wram0p, *wram1p, *sramp;
-  u8 vram[0x4000]{};  // 0x8000-0x9fff, 2 banks
-  u8 sram[0x8000]{};  // 0xa000-0xbfff, 4 banks
-  u8 wram[0x8000]{};  // 0xc000-0xdfff, 4 banks
-  u8 oam[0x100]{};    // 0xfe00-0xfe9f
-  u8 io[0x100]{};     // 0xff00-0xffff
-  bool ime = false, ime_enable = false, dispatch = false;
-  bool sram_enabled = false;
-  u8 mbc_2xxx = 0, mbc_3xxx = 0, mbc_23xxx = 0, mbc_45xxx = 0, mbc_mode = 0;
+  u8 vram[0x4000];  // 0x8000-0x9fff, 2 banks
+  u8 sram[0x8000];  // 0xa000-0xbfff, 4 banks
+  u8 wram[0x8000];  // 0xc000-0xdfff, 4 banks
+  u8 oam[0x100];    // 0xfe00-0xfe9f
+  u8 io[0x100];     // 0xff00-0xffff
 };
 
 struct GB {
   explicit GB(Buffer&&, Variant);
+  void Step();
   void StepCPU();
   void DispatchInterrupt();
   void StepTimer();
   void StepPPU();
+  void StepPPU_Mode2();
+  void StepPPU_Mode3();
+  void SetPPUMode(u8 mode);
 
   int Disassemble(u16 addr, char* buffer, size_t size);
   void PrintInstruction(u16 addr);
@@ -143,8 +156,8 @@ struct GB {
 
   u8 ReadU8(u16 addr);
   void WriteU8(u16 addr, u8 val);
-  void WriteU8ROM(u16 addr, u8 val);
-  void WriteU8IO(u8 addr, u8 val);
+  void WriteU8_ROM(u16 addr, u8 val);
+  void WriteU8_IO(u8 addr, u8 val);
 
   static u8 zflag(u8);
   static u8 hflag(int res, int x, int y);
@@ -318,6 +331,7 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 }
 
 State::State(GB& gb) {
+  std::fill((u8*)this, (u8*)this + sizeof(State), 0);
   af = 0x01b0;
   bc = 0x0013;
   de = 0x00d8;
@@ -344,6 +358,9 @@ State::State(GB& gb) {
       0,    0,    0,    0,    0xff, 0xfc, 0xff, 0xff, 0,    0};
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
+  div = 0xac00;
+  ppu_mode = 2;
+  ppu_pixel = ppu_buffer;
 }
 
 GB::GB(Buffer&& rom_, Variant variant)
@@ -368,6 +385,12 @@ GB::GB(Buffer&& rom_, Variant variant)
   case code + 6: name##_mr(n, s.hl); break; \
   case code + 7: name##_r(n, s.a); break;
 #define LD_R_OPS(code, r) REG_OPS_N(code, ld_r, r)
+
+void GB::Step() {
+  StepCPU();
+  StepTimer();
+  StepPPU();
+}
 
 void GB::StepCPU() {
   switch (++s.op_tick) {
@@ -587,12 +610,13 @@ void GB::DispatchInterrupt() {
   switch (s.op_tick) {
     case 7: WriteU8(--s.sp, s.pc >> 8); break;
     case 8: {
-      u8& if_ = s.io[IF];
-      u8 intr = if_ & s.io[IE] & 0x1f;
+      u8 intr = s.io[IF] & s.io[IE] & 0x1f;
       s.wz = 0;
       for (int i = 0; i < 5; ++i) {
-        if (if_ & (1 << i)) {
-          if_ &= ~(1 << i);
+        if (intr & (1 << i)) {
+          printf("%s: i: %d IF:%02x IE:%02x STAT:%02x\n", __func__, i, s.io[IF],
+                 s.io[IE], s.io[STAT]);
+          s.io[IF] &= ~(1 << i);
           s.wz = 0x40 + (i << 3);
           break;
         }
@@ -625,7 +649,7 @@ u8 GB::ReadU8(u16 addr) {
 void GB::WriteU8(u16 addr, u8 val) {
   switch (addr >> 12) {
     case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7:
-      WriteU8ROM(addr & 0x7fff, val);
+      WriteU8_ROM(addr & 0x7fff, val);
       break;
     case 8: case 9: s.vramp[addr & 0x1fff] = val; break;
     case 10: case 11: s.sramp[addr & 0x1fff] = val; break;
@@ -635,12 +659,12 @@ void GB::WriteU8(u16 addr, u8 val) {
       switch ((addr >> 8) & 0xf) {
         default: s.wram1p[addr & 0xfff] = val; break;
         case 14: s.oam[addr & 0xff] = val; break;
-        case 15: WriteU8IO(addr & 0xff, val); break;
+        case 15: WriteU8_IO(addr & 0xff, val); break;
       }
   }
 }
 
-void GB::WriteU8ROM(u16 addr, u8 val) {
+void GB::WriteU8_ROM(u16 addr, u8 val) {
   switch (addr >> 12) {
     case 0: case 1: s.sram_enabled = (val & 0xf) == 0xa; break;
     case 2: s.mbc_2xxx = val; s.mbc_23xxx = val; break;
@@ -693,7 +717,7 @@ void GB::WriteU8ROM(u16 addr, u8 val) {
   s.sramp = s.sram + (sram_bank << 13);
 }
 
-void GB::WriteU8IO(u8 addr, u8 val) {
+void GB::WriteU8_IO(u8 addr, u8 val) {
   static const u8 dmg_io_mask[256] = {
       0x30, 0xff, 0x81, 0,    0,    0xff, 0xff, 0x07, 0,    0,    0,    0,
       0,    0,    0,    0x1f, 0x7f, 0xff, 0xff, 0xff, 0xc0, 0,    0xff, 0xff,
@@ -728,7 +752,15 @@ void GB::WriteU8IO(u8 addr, u8 val) {
     case SB: printf("%c", val); fflush(stdout); break;
 #endif
     case DIV: s.io[DIV] = s.div = 0; break;
-    case LCDC: s.io[LY] = 0; s.ppu_line_tick = 0; break;
+    case LCDC:
+      if ((old ^ byte) & 0x80) {
+        s.ppu_line_tick = s.ppu_mode_tick = s.ppu_line_x = 0;
+        s.ppu_pixel = s.ppu_buffer;
+        s.ppu_mode = 2;
+        s.io[LY] = 0;
+        s.io[STAT] &= ~7;
+      }
+      break;
   }
 }
 
@@ -1582,37 +1614,118 @@ void GB::StepPPU() {
   if (!(s.io[LCDC] & 0x80)) {
     return;
   }
-  u8& if_ = s.io[IF];
-  u8& stat = s.io[STAT];
   u8& ly = s.io[LY];
+  u8& stat = s.io[STAT];
 
-  // TODO(binji): proper timing.
+  // TODO: proper timing.
   s.ppu_line_tick++;
-  if (ly < 144) {
-    if (s.ppu_line_tick == 80) {
-      stat = (stat & ~3) | 3;
-    } else if (s.ppu_line_tick == 80 + 172) {
-      stat = (stat & ~3) | 0;
-      if (stat & 0x08) { if_ |= 2; }
+  switch (s.ppu_mode) {
+    case 0:
+    case 1:
+      if (s.ppu_line_tick == 456) {
+        switch (++ly) {
+          case 144:
+            SetPPUMode(1);
+            break;
+          case 154:
+            SetPPUMode(2);
+            s.ppu_pixel = s.ppu_buffer;
+            ly = 0;
+            break;
+        }
+        stat = (stat & ~4) | (!!(ly == s.io[LYC]) << 2);
+        if ((stat & 0x44) == 0x44) { s.io[IF] |= 2; }
+        s.ppu_line_tick = 0;
+      }
+      break;
+
+    case 2: StepPPU_Mode2(); break;
+    case 3: StepPPU_Mode3(); break;
+  }
+}
+
+void GB::StepPPU_Mode2() {
+  // TODO: sprite stuff
+  if (++s.ppu_mode_tick == 80) {
+    SetPPUMode(3);
+    s.ppu_line_x = 0;
+    s.ppu_stall = 6 + (s.io[SCX] & 7);
+  }
+}
+
+void GB::StepPPU_Mode3() {
+  // TODO: window
+  if (s.ppu_stall > 0) {
+    --s.ppu_stall;
+  } else {
+    u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
+    *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
+    s.ppu_tile[0] <<= 1;
+    s.ppu_tile[1] <<= 1;
+
+    if (++s.ppu_line_x == 160) {
+      SetPPUMode(0);
     }
   }
-  if (s.ppu_line_tick == 456) {
-    switch (++ly) {
-      case 144:
-        stat = (stat & ~3) | 1;
-        if (stat & 0x10) { if_ |= 2; }
-        if_ |= 1;
-        break;
-      case 154:
-        ly = 0;
-        // Fallthrough.
-      default:
-        stat = (stat & ~3) | 2;
-        if (stat & 0x20) { if_ |= 2; }
-        break;
+
+  switch (s.ppu_mode_tick++) {
+    case 0: {
+      s.ppu_map_addr = 0x1800 | ((s.io[LCDC] & 8) << 7) |
+                       (((s.io[LY] + s.io[SCY]) & 0xf8) << 2) |
+                       ((s.io[SCX] & 0xf8) >> 3);
+      s.ppu_map = s.vram[s.ppu_map_addr];
+      break;
     }
-    if ((stat & 0x40) && ly == s.io[LYC]) { if_ |= 2; }
-    s.ppu_line_tick = 0;
+
+    case 2: case 6: case 14: case 22: case 30: case 38: case 46: case 54:
+    case 62: case 70: case 78: case 86: case 94: case 102: case 110: case 118:
+    case 126: case 134: case 142: case 150: case 158: case 166: case 174:
+      // Fetch plane 0.
+      s.ppu_tile_addr = ((s.io[LY] + s.io[SCY]) & 0x7) << 1;
+      if (s.io[LCDC] & 0x10) {
+        s.ppu_tile_addr |= (s.ppu_map << 4);
+      } else {
+        s.ppu_tile_addr |= (0x1000 - (s.ppu_map << 4));
+      }
+      s.ppu_next_tile[0] = s.vram[s.ppu_tile_addr++];
+      break;
+
+    case 4: case 8: case 16: case 24: case 32: case 40: case 48: case 56:
+    case 64: case 72: case 80: case 88: case 96: case 104: case 112: case 120:
+    case 128: case 136: case 144: case 152: case 160: case 168: case 176:
+      // Fetch plane 1.
+      s.ppu_next_tile[1] = s.vram[s.ppu_tile_addr];
+      break;
+
+    case 10: case 18: case 26: case 34: case 42: case 50: case 58:
+    case 66: case 74: case 82: case 90: case 98: case 106: case 114: case 122:
+    case 130: case 138: case 146: case 154: case 162: case 170: case 178:
+      // Sprite window.
+      break;
+
+    case 12: case 20: case 28: case 36: case 44: case 52: case 60:
+    case 68: case 76: case 84: case 92: case 100: case 108: case 116: case 124:
+    case 132: case 140: case 148: case 156: case 164: case 172: case 180:
+      // Next map addr.
+      s.ppu_map_addr = (s.ppu_map_addr & ~31) | ((s.ppu_map_addr + 1) & 31);
+      s.ppu_map = s.vram[s.ppu_map_addr];
+      s.ppu_tile[0] = s.ppu_next_tile[0];
+      s.ppu_tile[1] = s.ppu_next_tile[1];
+      break;
+  }
+}
+
+void GB::SetPPUMode(u8 mode) {
+  u8& stat = s.io[STAT];
+  u8& if_ = s.io[IF];
+  stat = (stat & ~3) | mode;
+  s.ppu_mode = mode;
+  s.ppu_mode_tick = 0;
+  u8 old = stat;
+  switch (mode) {
+    case 0: if (stat & 0x08) { if_ |= 2; } break;
+    case 1: if (stat & 0x10) { if_ |= 2; } if_ |= 1; break;
+    case 2: if (stat & 0x20) { if_ |= 2; } break;
   }
 }
 
@@ -1791,6 +1904,8 @@ void GB::Trace() {
            (s.f & 0x20) ? 'H' : '-', (s.f & 0x10) ? 'C' : '-', s.bc, s.de, s.hl,
            s.sp, s.pc);
     printf(" (cy: %" PRIu64 ")", s.tick);
+    printf(" ppu:%c%u", s.io[LCDC] & 0x80 ? '+' : '-', s.ppu_mode);
+    printf(" LY:%u", s.io[LY]);
     printf(" |");
     PrintInstruction(s.pc);
     printf("\n");
@@ -1799,7 +1914,7 @@ void GB::Trace() {
 
 
 Buffer ReadFile(const char* filename) {
-  std::ifstream file(filename, std::ios::binary | std::ios::ate);
+  std::ifstream file(filename, std::ios::binary | std::ios::in | std::ios::ate);
   if (!file) {
     throw Error(std::string("Failed to open file \"") + filename + "\".");
   }
@@ -1817,6 +1932,30 @@ Buffer ReadFile(const char* filename) {
   return data;
 }
 
+void WriteFramePPM(const GB& gb, const char* filename) {
+  std::ofstream file(filename, std::ios::out);
+  if (!file) {
+    throw Error(std::string("Failed to open file \"") + filename + "\".");
+  }
+  u32 colors[] = {0xffffffffu, 0xffaaaaaau, 0xff555555u, 0xff000000u};
+  file << "P3\n160 144\n255\n";
+  u8 x, y;
+  const u8* data = gb.s.ppu_buffer;
+  for (y = 0; y < 144; ++y) {
+    for (x = 0; x < 160; ++x) {
+      u32 pixel = colors[*data++];
+      int b = (pixel >> 16) & 0xff;
+      int g = (pixel >> 8) & 0xff;
+      int r = (pixel >> 0) & 0xff;
+      file << r << ' ' << g << ' ' << b << ' ';
+    }
+    file << '\n';
+  }
+  if (file.bad()) {
+    throw Error("Failed to write file.");
+  }
+}
+
 int main(int argc, char** argv) {
   try {
     if (argc < 2) {
@@ -1826,14 +1965,19 @@ int main(int argc, char** argv) {
 
     GB gb(ReadFile(argv[1]), Variant::Guess);
 
-    while (true) {
+    int frames = 20;
+
+    for (Tick i = 0; i < frames * 70224u; ++i) {
 #if TRACE
       gb.Trace();
 #endif
-      gb.StepCPU();
-      gb.StepTimer();
-      gb.StepPPU();
+      gb.Step();
     }
+
+    while (gb.s.io[LY] == 0) { gb.Step(); }
+    while (gb.s.io[LY] != 0) { gb.Step(); }
+
+    WriteFramePPM(gb, "bagbe.ppm");
 
     return 0;
   } catch (const Error& e) {
