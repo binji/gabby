@@ -761,11 +761,12 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
     case DIV: s.io[DIV] = s.div = 0; break;
     case LCDC:
       if ((old ^ byte) & 0x80) {
+        bool enabled = !!(byte & 0x80);
         s.ppu_line_tick = 2;
         s.ppu_mode_tick = 0;
         s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
-        s.ppu_mode = (byte & 0x80) ? 2 : 0;
+        s.ppu_mode = enabled ? 2 : 0;
         s.io[LY] = 0;
         s.io[STAT] &= ~7;
         CheckLyLyc();
@@ -2091,13 +2092,6 @@ int main(int argc, char** argv) {
       }
       gb.Step();
     }
-
-    if (gb.s.io[LCDC] & 0x80) {
-      while (gb.s.io[LY] == 0) { gb.Step(); }
-      while (gb.s.io[LY] != 0) { gb.Step(); }
-    }
-
-    printf("tick: %" PRIu64 "\n", gb.s.tick);
 
     if (s_ppm_filename) {
       WriteFramePPM(gb, s_ppm_filename);
