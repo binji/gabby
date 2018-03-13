@@ -32,9 +32,9 @@ add_custom_target(${name}-copy-to-bin ALL
 )
 endfunction ()
 
-add_executable(bagbe
-  src/bagbe.cc
+add_executable(gabby
+  src/gabby.cc
 )
 
-install(TARGETS bagbe DESTINATION bin)
-target_copy_to_bin(bagbe)
+install(TARGETS gabby DESTINATION bin)
+target_copy_to_bin(gabby)

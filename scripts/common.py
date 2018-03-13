@@ -17,7 +17,7 @@ OUT_DIR = os.path.join(ROOT_DIR, 'out')
 ROM_DIR = os.path.join(ROOT_DIR, 'rom')
 TEST_DIR = os.path.join(ROOT_DIR, 'test')
 THIRD_PARTY_DIR = os.path.join(ROOT_DIR, 'third_party')
-TESTER = os.path.join(BIN_DIR, 'bagbe')
+TESTER = os.path.join(BIN_DIR, 'gabby')
 
 
 class Error(Exception):
