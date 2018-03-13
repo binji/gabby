@@ -18,8 +18,6 @@
 #include <utility>
 #include <vector>
 
-#define TRACE 0
-
 using s8 = int8_t;
 using s16 = int16_t;
 using s32 = int32_t;
@@ -759,9 +757,6 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
   byte = (byte & ~mask) | (val & mask);
 
   switch (addr) {
-#if !TRACE
-    case SB: printf("%c", val); fflush(stdout); break;
-#endif
     case DIV: s.io[DIV] = s.div = 0; break;
     case LCDC:
       if ((old ^ byte) & 0x80) {
@@ -2037,33 +2032,74 @@ void WriteFramePPM(const GB& gb, const char* filename) {
   }
 }
 
+static const char* s_filename = nullptr;
+static const char* s_ppm_filename = nullptr;
+static bool s_trace = false;
+static int s_frames = 60;
+
+void ParseArguments(int argc, char** argv) {
+  --argc;
+  ++argv;
+  for (; argc; --argc, ++argv) {
+    const char* arg = *argv;
+    if (arg[0] == '-') {
+      switch (arg[1]) {
+        case 'f':
+          if (--argc == 0) {
+            throw Error("frame count required for -f");
+          }
+          try {
+            s_frames = std::stoi(*++argv);
+          } catch (const std::invalid_argument&) {
+            throw Error("invalid frame count");
+          }
+          break;
+
+        case 't':
+          s_trace = true;
+          break;
+
+        case 'o':
+          if (--argc == 0) {
+            throw Error("filename require for -o");
+          }
+          s_ppm_filename = *++argv;
+          break;
+      }
+    } else if (s_filename) {
+      throw Error("multiple filenames");
+    } else {
+      s_filename = arg;
+    }
+  }
+
+  if (!s_filename) {
+    throw Error("No rom file given.");
+  }
+}
+
 int main(int argc, char** argv) {
   try {
-    if (argc < 2) {
-      std::cout << "No rom file given.\n";
-      return 1;
-    }
+    ParseArguments(argc, argv);
+    GB gb(ReadFile(s_filename), Variant::Guess);
 
-    int frames = 60;
-    if (argc >= 3) {
-      frames = std::stoi(argv[2]);
-    }
-
-    GB gb(ReadFile(argv[1]), Variant::Guess);
-
-    for (Tick i = 0; i < frames * 70224u; ++i) {
-#if TRACE
-      gb.Trace();
-#endif
+    for (Tick i = 0; i < s_frames * 70224u; ++i) {
+      if (s_trace) {
+        gb.Trace();
+      }
       gb.Step();
     }
 
-    while (gb.s.io[LY] == 0) { gb.Step(); }
-    while (gb.s.io[LY] != 0) { gb.Step(); }
+    if (gb.s.io[LCDC] & 0x80) {
+      while (gb.s.io[LY] == 0) { gb.Step(); }
+      while (gb.s.io[LY] != 0) { gb.Step(); }
+    }
 
     printf("tick: %" PRIu64 "\n", gb.s.tick);
 
-    WriteFramePPM(gb, "bagbe.ppm");
+    if (s_ppm_filename) {
+      WriteFramePPM(gb, s_ppm_filename);
+    }
 
     return 0;
   } catch (const Error& e) {
