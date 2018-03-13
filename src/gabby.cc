@@ -403,12 +403,11 @@ void GB::Step() {
 
 void GB::StepCPU() {
   switch (++s.op_tick) {
-    case 1:
-      s.ime = s.ime_enable ? true : s.ime;
-      s.ime_enable = false;
-      break;
+    case 1: break;
     case 2:
       s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
+      s.ime = s.ime_enable ? true : s.ime;
+      s.ime_enable = false;
       break;
     case 3:
       if (s.dispatch) { DispatchInterrupt(); break; }
@@ -631,7 +630,7 @@ void GB::DispatchInterrupt() {
       break;
     }
     case 11: WriteU8(--s.sp, s.pc); s.pc = s.wz; break;
-    case 20: s.op_tick = 0; break;
+    case 20: s.ime = false; s.op_tick = 0; break;
   }
 }
 
