@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <exception>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -2023,7 +2024,8 @@ void WriteFramePPM(const GB& gb, const char* filename) {
       int b = (pixel >> 16) & 0xff;
       int g = (pixel >> 8) & 0xff;
       int r = (pixel >> 0) & 0xff;
-      file << r << ' ' << g << ' ' << b << ' ';
+      file << std::setw(3) << r << ' ' << std::setw(3) << g << ' '
+           << std::setw(3) << b << ' ';
     }
     file << '\n';
   }
