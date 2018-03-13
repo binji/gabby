@@ -120,8 +120,8 @@ struct State {
 
   u8 op, cb_op;
 
-  u16 ppu_line_tick, ppu_map_addr, ppu_tile_addr;
-  u8 ppu_mode, ppu_mode_tick, ppu_stall;
+  u16 ppu_line_tick, ppu_mode_tick, ppu_map_addr, ppu_tile_addr;
+  u8 ppu_mode, ppu_stall;
   u8 ppu_line_x, ppu_line_y, ppu_draw_y;
   u8 ppu_map, ppu_tile[2], ppu_next_tile[2];
   u8 ppu_buffer[160 * 144], *ppu_pixel;
@@ -368,6 +368,7 @@ State::State(GB& gb) {
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
   div = 0xac00;
   ppu_mode = 2;
+  ppu_line_tick = 2;
   ppu_pixel = ppu_buffer;
 }
 
@@ -764,9 +765,11 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
     case DIV: s.io[DIV] = s.div = 0; break;
     case LCDC:
       if ((old ^ byte) & 0x80) {
-        s.ppu_line_tick = s.ppu_mode_tick = s.ppu_line_x = s.ppu_line_y = 0;
+        s.ppu_line_tick = 2;
+        s.ppu_mode_tick = 0;
+        s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
-        s.ppu_mode = 2;
+        s.ppu_mode = (byte & 0x80) ? 2 : 0;
         s.io[LY] = 0;
         s.io[STAT] &= ~7;
         CheckLyLyc();
@@ -1662,14 +1665,17 @@ void GB::StepPPU() {
   u8& ly = s.io[LY];
   u8& stat = s.io[STAT];
 
-  // TODO: proper timing.
   ++s.ppu_line_tick;
   switch (s.ppu_mode) {
     case 0:
     case 1:
       if (s.ppu_line_tick == 452) {
-        ++ly;
-        CheckLyLyc();
+        if (s.ppu_line_y == 153) {
+          stat &= ~3;
+        } else {
+          ++ly;
+          CheckLyLyc();
+        }
       } else if (s.ppu_line_tick == 456) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
@@ -1979,7 +1985,7 @@ void GB::Trace() {
            (s.f & 0x20) ? 'H' : '-', (s.f & 0x10) ? 'C' : '-', s.bc, s.de, s.hl,
            s.sp, s.pc);
     printf(" (cy: %" PRIu64 ")", s.tick);
-    printf(" ppu:%c%u", s.io[LCDC] & 0x80 ? '+' : '-', s.ppu_mode);
+    printf(" ppu:%c%u", s.io[LCDC] & 0x80 ? '+' : '-', s.io[STAT] & 3);
     printf(" LY:%u", s.io[LY]);
     printf(" |");
     PrintInstruction(s.pc);
