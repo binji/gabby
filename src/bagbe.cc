@@ -127,6 +127,9 @@ struct State {
   u8 ppu_buffer[160 * 144], *ppu_pixel;
   bool ppu_window;
 
+  u16 dma_tick, dma_addr;
+  bool dma_active;
+
   u16 div;
   bool ime, ime_enable, dispatch;
   bool sram_enabled;
@@ -146,6 +149,7 @@ struct GB {
   void StepCPU();
   void DispatchInterrupt();
   void StepTimer();
+  void StepDMA();
   void StepPPU();
   void StepPPU_Mode2();
   void StepPPU_Mode3();
@@ -156,6 +160,8 @@ struct GB {
   void PrintInstruction(u16 addr);
   void Trace();
 
+  bool UsingVRAM() const;
+  bool UsingOAM() const;
   u8 ReadU8(u16 addr);
   void WriteU8(u16 addr, u8 val);
   void WriteU8_ROM(u16 addr, u8 val);
@@ -391,6 +397,7 @@ GB::GB(Buffer&& rom_, Variant variant)
 void GB::Step() {
   StepCPU();
   StepTimer();
+  StepDMA();
   StepPPU();
 }
 
@@ -628,18 +635,21 @@ void GB::DispatchInterrupt() {
   }
 }
 
+bool GB::UsingVRAM() const { return s.ppu_mode == 3; }
+bool GB::UsingOAM() const { return s.dma_active || s.ppu_mode == 2; }
+
 u8 GB::ReadU8(u16 addr) {
   switch (addr >> 12) {
     case 0: case 1: case 2: case 3: return s.rom0p[addr & 0x3fff];
     case 4: case 5: case 6: case 7: return s.rom1p[addr & 0x3fff];
-    case 8: case 9: return s.vramp[addr & 0x1fff];
+    case 8: case 9: return UsingVRAM() ? 0xff : s.vramp[addr & 0x1fff];
     case 10: case 11: return s.sramp[addr & 0x1fff];
     case 12: case 14: return s.wram0p[addr & 0xfff];
     case 13: return s.wram1p[addr & 0xfff];
     case 15:
       switch ((addr >> 8) & 0xf) {
         default: return s.wram1p[addr & 0xfff];
-        case 14: return s.oam[addr & 0xff];
+        case 14: return UsingOAM() ? 0xff : s.oam[addr & 0xff];
         case 15: return s.io[addr & 0xff];
       }
   }
@@ -651,14 +661,14 @@ void GB::WriteU8(u16 addr, u8 val) {
     case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7:
       WriteU8_ROM(addr & 0x7fff, val);
       break;
-    case 8: case 9: s.vramp[addr & 0x1fff] = val; break;
+    case 8: case 9: if (!UsingVRAM()) { s.vramp[addr & 0x1fff] = val; } break;
     case 10: case 11: s.sramp[addr & 0x1fff] = val; break;
     case 12: case 14: s.wram0p[addr & 0xfff] = val; break;
     case 13: s.wram1p[addr & 0xfff] = val; break;
     case 15:
       switch ((addr >> 8) & 0xf) {
         default: s.wram1p[addr & 0xfff] = val; break;
-        case 14: s.oam[addr & 0xff] = val; break;
+        case 14: if (!UsingOAM()) { s.oam[addr & 0xff] = val; } break;
         case 15: WriteU8_IO(addr & 0xff, val); break;
       }
   }
@@ -761,6 +771,11 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
         s.io[STAT] &= ~7;
         CheckLyLyc();
       }
+      break;
+    case DMA:
+      s.dma_active = true;
+      s.dma_tick = 0;
+      s.dma_addr = val << 8;
       break;
 
 #if 0
@@ -1621,6 +1636,21 @@ void GB::StepTimer() {
     if (++s.io[TIMA] == 0) {
       s.io[TIMA] = s.io[TMA];
       s.io[IF] |= 4;
+    }
+  }
+}
+
+void GB::StepDMA() {
+  if (!s.dma_active) {
+    return;
+  }
+  if (++s.dma_tick >= 8) {
+    if ((s.dma_tick & 3) == 3) {
+      u16 offset = (s.dma_tick - 8) >> 2;
+      s.oam[offset] = ReadU8(s.dma_addr + offset);
+      if (offset == 159) {
+        s.dma_active = false;
+      }
     }
   }
 }
