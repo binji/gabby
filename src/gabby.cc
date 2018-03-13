@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#define DEBUG_INTERRUPTS 1
+
 using s8 = int8_t;
 using s16 = int16_t;
 using s32 = int32_t;
@@ -406,6 +408,11 @@ void GB::StepCPU() {
   switch (++s.op_tick) {
     case 1: break;
     case 2:
+#if DEBUG_INTERRUPTS
+      if (s.dispatch) {
+        printf("%" PRIu64 ": dispatch\n", s.tick);
+      }
+#endif
       s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
       s.ime = s.ime_enable ? true : s.ime;
       s.ime_enable = false;
@@ -1027,13 +1034,25 @@ void GB::dec_r(u8& r) {
 
 void GB::di() {
   switch (s.op_tick) {
-    case 4: s.ime_enable = s.ime = false; s.op_tick = 0; break;
+    case 4:
+#if DEBUG_INTERRUPTS
+      printf("%" PRIu64 ": di\n", s.tick);
+#endif
+      s.ime_enable = s.ime = false;
+      s.op_tick = 0;
+      break;
   }
 }
 
 void GB::ei() {
   switch (s.op_tick) {
-    case 4: s.ime_enable = true; s.op_tick = 0; break;
+    case 4:
+#if DEBUG_INTERRUPTS
+      printf("%" PRIu64 ": ei\n", s.tick);
+#endif
+      s.ime_enable = true;
+      s.op_tick = 0;
+      break;
   }
 }
 
@@ -1644,6 +1663,9 @@ void GB::CheckDiv(u16 old_div) {
     if (++s.io[TIMA] == 0) {
       s.io[TIMA] = s.io[TMA];
       s.io[IF] |= 4;
+#if DEBUG_INTERRUPTS
+      printf("%" PRIu64 ": trigger TIMER IF 4\n", s.tick);
+#endif
     }
   }
 }
@@ -1800,18 +1822,27 @@ void GB::SetPPUMode(u8 mode) {
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
   s.ppu_mode_tick = 0;
-  u8 old = stat;
+  u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
     case 1: if (stat & 0x10) { if_ |= 2; } if_ |= 1; break;
     case 2: if (stat & 0x20) { if_ |= 2; } break;
   }
+#if DEBUG_INTERRUPTS
+  if (if_ != old) {
+    printf("%" PRIu64 ": trigger IF %d mode: %d\n", s.tick, (if_ ^ old) & if_,
+           mode);
+  }
+#endif
 }
 
 void GB::CheckLyLyc() {
   s.io[STAT] = (s.io[STAT] & ~4) | (!!(s.io[LY] == s.io[LYC]) << 2);
   if ((s.io[STAT] & 0x44) == 0x44) {
     s.io[IF] |= 2;
+#if DEBUG_INTERRUPTS
+    printf("%" PRIu64 ": trigger STAT IF 2 ly=lyc=%d\n", s.tick, s.io[LY]);
+#endif
   }
 }
 
