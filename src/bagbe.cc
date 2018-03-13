@@ -122,9 +122,10 @@ struct State {
 
   u16 ppu_line_tick, ppu_map_addr, ppu_tile_addr;
   u8 ppu_mode, ppu_mode_tick, ppu_stall;
-  u8 ppu_line_x, ppu_line_y;
+  u8 ppu_line_x, ppu_line_y, ppu_draw_y;
   u8 ppu_map, ppu_tile[2], ppu_next_tile[2];
   u8 ppu_buffer[160 * 144], *ppu_pixel;
+  bool ppu_window;
 
   u16 div;
   bool ime, ime_enable, dispatch;
@@ -761,6 +762,20 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
         CheckLyLyc();
       }
       break;
+
+#if 0
+    case WX:
+      printf("%" PRIu64 " wx: %d ly: %d\n", s.tick, s.io[WX], s.io[LY]);
+      break;
+
+    case SCX:
+      printf("%" PRIu64 " scx: %d ly: %d\n", s.tick, s.io[SCX], s.io[LY]);
+      break;
+
+    case SCY:
+      printf("%" PRIu64 " scy: %d ly: %d\n", s.tick, s.io[SCY], s.io[LY]);
+      break;
+#endif
   }
 }
 
@@ -1652,42 +1667,48 @@ void GB::StepPPU_Mode2() {
   // TODO: sprite stuff
   if (++s.ppu_mode_tick == 80) {
     SetPPUMode(3);
+    s.ppu_window = false;
     s.ppu_line_x = 0;
     s.ppu_stall = 14 + (s.io[SCX] & 7);
   }
 }
 
 void GB::StepPPU_Mode3() {
-  // TODO: window
-  if (s.ppu_stall > 0) {
-    --s.ppu_stall;
-  }
-  if (s.ppu_stall == 0) {
-    u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
-    *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
-
-    if (++s.ppu_line_x == 160) {
-      SetPPUMode(0);
-    }
-  }
-
-  s.ppu_tile[0] <<= 1;
-  s.ppu_tile[1] <<= 1;
-
   switch (s.ppu_mode_tick++) {
     case 0: {
-      s.ppu_map_addr = 0x1800 | ((s.io[LCDC] & 8) << 7) |
-                       (((s.ppu_line_y + s.io[SCY]) & 0xf8) << 2) |
-                       ((s.io[SCX] & 0xf8) >> 3);
+      if (s.ppu_window) {
+        s.ppu_draw_y = s.ppu_line_y - s.io[WY];
+        s.ppu_map_addr = (s.io[LCDC] & 0x40) << 4;
+      } else {
+        s.ppu_draw_y = s.ppu_line_y + s.io[SCY];
+        s.ppu_map_addr = ((s.io[LCDC] & 8) << 7) | ((s.io[SCX] & 0xf8) >> 3);
+      }
+      s.ppu_map_addr |= 0x1800 | ((s.ppu_draw_y & 0xf8) << 2);
       s.ppu_map = s.vram[s.ppu_map_addr];
       break;
     }
 
-    case 2: case 6: case 14: case 22: case 30: case 38: case 46: case 54:
+    case 6:
+      if (!s.ppu_window) { goto no_increment; }
+      // Fallthrough.
+
+    case 14: case 22: case 30: case 38: case 46: case 54:
     case 62: case 70: case 78: case 86: case 94: case 102: case 110: case 118:
     case 126: case 134: case 142: case 150: case 158: case 166: case 174:
+      s.ppu_map_addr = (s.ppu_map_addr & ~31) | ((s.ppu_map_addr + 1) & 31);
+
+    no_increment:
+      // Next map addr.
+      s.ppu_map = s.vram[s.ppu_map_addr];
+      s.ppu_tile[0] = s.ppu_next_tile[0];
+      s.ppu_tile[1] = s.ppu_next_tile[1];
+      break;
+
+    case 2: case 8: case 16: case 24: case 32: case 40: case 48: case 56:
+    case 64: case 72: case 80: case 88: case 96: case 104: case 112: case 120:
+    case 128: case 136: case 144: case 152: case 160: case 168: case 176:
       // Fetch plane 0.
-      s.ppu_tile_addr = ((s.ppu_line_y + s.io[SCY]) & 0x7) << 1;
+      s.ppu_tile_addr = (s.ppu_draw_y & 0x7) << 1;
       if (s.io[LCDC] & 0x10) {
         s.ppu_tile_addr |= (s.ppu_map << 4);
       } else {
@@ -1696,28 +1717,39 @@ void GB::StepPPU_Mode3() {
       s.ppu_next_tile[0] = s.vram[s.ppu_tile_addr++];
       break;
 
-    case 4: case 8: case 16: case 24: case 32: case 40: case 48: case 56:
-    case 64: case 72: case 80: case 88: case 96: case 104: case 112: case 120:
-    case 128: case 136: case 144: case 152: case 160: case 168: case 176:
-      // Fetch plane 1.
-      s.ppu_next_tile[1] = s.vram[s.ppu_tile_addr];
-      break;
-
-    case 10: case 18: case 26: case 34: case 42: case 50: case 58:
+    case 4: case 10: case 18: case 26: case 34: case 42: case 50: case 58:
     case 66: case 74: case 82: case 90: case 98: case 106: case 114: case 122:
     case 130: case 138: case 146: case 154: case 162: case 170: case 178:
-      // Sprite window.
+      // Fetch plane 1.
+      s.ppu_next_tile[1] = s.vram[s.ppu_tile_addr];
       break;
 
     case 12: case 20: case 28: case 36: case 44: case 52: case 60:
     case 68: case 76: case 84: case 92: case 100: case 108: case 116: case 124:
     case 132: case 140: case 148: case 156: case 164: case 172: case 180:
-      // Next map addr.
-      s.ppu_map_addr = (s.ppu_map_addr & ~31) | ((s.ppu_map_addr + 1) & 31);
-      s.ppu_map = s.vram[s.ppu_map_addr];
-      s.ppu_tile[0] = s.ppu_next_tile[0];
-      s.ppu_tile[1] = s.ppu_next_tile[1];
+      // Sprite window.
       break;
+  }
+
+  if (s.ppu_stall == 0) {
+    u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
+    *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
+
+    if (++s.ppu_line_x == 160) {
+      SetPPUMode(0);
+    }
+  } else {
+    --s.ppu_stall;
+  }
+
+  s.ppu_tile[0] <<= 1;
+  s.ppu_tile[1] <<= 1;
+
+  if (!s.ppu_window && (s.io[LCDC] & 0x20) && s.ppu_line_y >= s.io[WY] &&
+      s.ppu_mode_tick == s.io[WX] + 6) {
+    s.ppu_stall = 6;
+    s.ppu_mode_tick = 0;
+    s.ppu_window = true;
   }
 }
 
@@ -1992,6 +2024,8 @@ int main(int argc, char** argv) {
 
     while (gb.s.io[LY] == 0) { gb.Step(); }
     while (gb.s.io[LY] != 0) { gb.Step(); }
+
+    printf("tick: %" PRIu64 "\n", gb.s.tick);
 
     WriteFramePPM(gb, "bagbe.ppm");
 
