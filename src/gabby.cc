@@ -148,6 +148,7 @@ struct GB {
   void StepCPU();
   void DispatchInterrupt();
   void StepTimer();
+  void CheckDiv(u16 old_div);
   void StepDMA();
   void StepPPU();
   void StepPPU_Mode2();
@@ -757,7 +758,12 @@ void GB::WriteU8_IO(u8 addr, u8 val) {
   byte = (byte & ~mask) | (val & mask);
 
   switch (addr) {
-    case DIV: s.io[DIV] = s.div = 0; break;
+    case DIV: {
+      u16 old_div = s.div;
+      s.io[DIV] = s.div = 0;
+      CheckDiv(old_div);
+      break;
+    }
     case LCDC:
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
@@ -1624,12 +1630,15 @@ void GB::xor_r(u8 r) {
 }
 
 void GB::StepTimer() {
-  u16 old_div = s.div;
-  ++s.div;
+  u16 old_div = s.div++;
   s.io[DIV] = s.div >> 8;
   if (!(s.io[TAC] & 4)) {
     return;
   }
+  CheckDiv(old_div);
+}
+
+void GB::CheckDiv(u16 old_div) {
   static const u16 tima_mask[] = {1 << 9, 1 << 3, 1 << 5, 1 << 7};
   if (((old_div ^ s.div) & ~s.div) & tima_mask[s.io[TAC] & 3]) {
     if (++s.io[TIMA] == 0) {
