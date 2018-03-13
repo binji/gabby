@@ -643,7 +643,9 @@ void GB::DispatchInterrupt() {
 }
 
 bool GB::UsingVRAM() const { return s.ppu_mode == 3; }
-bool GB::UsingOAM() const { return s.dma_active || s.ppu_mode == 2; }
+bool GB::UsingOAM() const {
+  return (s.dma_active && s.dma_tick >= 4) || s.ppu_mode == 2;
+}
 
 u8 GB::ReadU8(u16 addr) {
   switch (addr >> 12) {
