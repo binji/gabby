@@ -5,7 +5,7 @@
   ["blargg", "test/blargg/instr_timing.gb", 42, "98e64480d3637d51683cc0d5ae1a3fa266e634e3"],
   ["blargg", "test/blargg/mem_timing.gb", 170, "f2f2cd0a196587d7b77a762eafd6a26bd95a68c1"],
   ["blargg", "test/blargg/oam_bug.gb", 1000, "!33fe95494d7eb02b36a4d19a1dbf949dcab25c1c"],
-  ["blargg", "test/blargg/halt_bug.gb", 105, "bb6282f423d9a7e14f2ef61bd30c403a24648da1"],
+  ["blargg", "test/blargg/halt_bug.gb", 106, "bb6282f423d9a7e14f2ef61bd30c403a24648da1"],
 
   ["mooneye", "test/mooneye-gb/build/acceptance/add_sp_e_timing.gb", 16, "91c16f7ebc814cd9202a870e8f85ef99ff53bf35"],
   ["mooneye", "test/mooneye-gb/build/acceptance/bits/mem_oam.gb", 13, "d2c5e9902e751f0ac0dc9cd2438c9b54d76dc125"],
