@@ -418,22 +418,15 @@ void GB::StepCPU() {
       s.op = s.next_op_byte;
       break;
     case 1:
+      s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
+      s.ime = s.ime_enable ? true : s.ime;
+      s.ime_enable = false;
 #if DEBUG_INTERRUPTS
       if (s.dispatch) {
         printf("%" PRIu64 ": dispatch\n", s.tick);
       }
 #endif
-      s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
-      s.ime = s.ime_enable ? true : s.ime;
-      s.ime_enable = false;
       break;
-    case 2:
-      if (s.dispatch) { DispatchInterrupt(); break; }
-      break;
-    case 3:
-      if (s.dispatch) { DispatchInterrupt(); break; }
-      ReadOpInc();
-      // Fallthrough.
     default:
       if (s.dispatch) { DispatchInterrupt(); break; }
 
@@ -597,11 +590,9 @@ u8 GB::ReadOpInc() {
 
 void GB::cb() {
   switch (s.op_tick) {
-    case 4: case 5: case 6:
-      break;
-    case 7:
-      s.cb_op = ReadOpInc();
-      // Fallthrough.
+    case 3: ReadOpInc(); break;
+    case 4: case 5: case 6: break;
+    case 7: s.cb_op = s.next_op_byte; // Fallthrough.
     default:
       switch (s.cb_op) {
         REG_OPS(0x00, rlc)
@@ -861,24 +852,27 @@ void GB::add(u8 x, u8 c) {
 
 void GB::adc_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); add(s.z, (s.f >> 4) & 1); s.op_tick = -1; break;
   }
 }
 
 void GB::adc_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); add(s.z, (s.f >> 4) & 1); s.op_tick = -1; break;
   }
 }
 
 void GB::adc_r(u8 r) {
   switch (s.op_tick) {
-    case 3: add(r, (s.f >> 4) & 1); s.op_tick = -1; break;
+    case 3: ReadOpInc(); add(r, (s.f >> 4) & 1); s.op_tick = -1; break;
   }
 }
 
 void GB::add_hl_rr(u16 rr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: {
       int res = s.hl + rr;
       s.f = (s.f & 0x80) | (((s.hl ^ rr ^ res) >> 7) & 0x20) |
@@ -892,19 +886,21 @@ void GB::add_hl_rr(u16 rr) {
 
 void GB::add_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); add(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::add_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); add(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::add_r(u8 r) {
   switch (s.op_tick) {
-    case 3: add(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); add(r); s.op_tick = -1; break;
   }
 }
 
@@ -916,6 +912,7 @@ u16 GB::add_sp(u8 x) {
 
 void GB::add_sp_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); s.sp = add_sp(s.z); break;
     case 15: s.op_tick = -1; break;
   }
@@ -928,19 +925,21 @@ void GB::and_(u8 x) {
 
 void GB::and_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); and_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::and_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); and_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::and_r(u8 r) {
   switch (s.op_tick) {
-    case 3: and_(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); and_(r); s.op_tick = -1; break;
   }
 }
 
@@ -948,18 +947,20 @@ void GB::bit(int n, u8 r) { s.f = (s.f & 0x10) | zflag(r & (1 << n)) | 0x20; }
 
 void GB::bit_r(int n, u8 r) {
   switch (s.op_tick) {
-    case 7: bit(n, r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); bit(n, r); s.op_tick = -1; break;
   }
 }
 
 void GB::bit_mr(int n, u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); bit(n, s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::call_f_nn(u8 mask, u8 val) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); f_is(mask, val); break;
     case 15: s.next_op_byte = Read(s.wz); break;
@@ -970,6 +971,7 @@ void GB::call_f_nn(u8 mask, u8 val) {
 
 void GB::call_nn() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); break;
     case 15: s.next_op_byte = Read(s.wz); break;
@@ -980,37 +982,49 @@ void GB::call_nn() {
 
 void GB::ccf() {
   switch (s.op_tick) {
-    case 3: s.f = (s.f & 0x80) | ((s.f ^ 0x10) & 0x10); s.op_tick = -1; break;
+    case 3:
+      ReadOpInc();
+      s.f = (s.f & 0x80) | ((s.f ^ 0x10) & 0x10);
+      s.op_tick = -1;
+      break;
   }
 }
 
 void GB::cpl() {
   switch (s.op_tick) {
-    case 3: s.a = ~s.a; s.f = (s.f & 0x90) | 0x60; s.op_tick = -1; break;
+    case 3:
+      ReadOpInc();
+      s.a = ~s.a;
+      s.f = (s.f & 0x90) | 0x60;
+      s.op_tick = -1;
+      break;
   }
 }
 
 void GB::cp_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); sub(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::cp_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); sub(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::cp_r(u8 r) {
   switch (s.op_tick) {
-    case 3: sub(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); sub(r); s.op_tick = -1; break;
   }
 }
 
 void GB::daa() {
   switch (s.op_tick) {
     case 3: {
+      ReadOpInc();
       u8 r = 0;
       if ((s.f & 0x20) || (!(s.f & 0x40) && (s.a & 0xf) > 9)) {
         r = 6;
@@ -1035,6 +1049,7 @@ u8 GB::dec(u8 r) {
 
 void GB::dec_mhl() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(s.hl); break;
     case 11: Write(s.hl, dec(s.z)); s.op_tick = -1; break;
   }
@@ -1042,14 +1057,14 @@ void GB::dec_mhl() {
 
 void GB::dec_rr(u16& rr) {
   switch (s.op_tick) {
-    case 3: rr--; break;
+    case 3: ReadOpInc(); rr--; break;
     case 7: s.op_tick = -1; break;
   }
 }
 
 void GB::dec_r(u8& r) {
   switch (s.op_tick) {
-    case 3: r = dec(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); r = dec(r); s.op_tick = -1; break;
   }
 }
 
@@ -1059,6 +1074,7 @@ void GB::di() {
 #if DEBUG_INTERRUPTS
       printf("%" PRIu64 ": di\n", s.tick);
 #endif
+      ReadOpInc();
       s.ime_enable = s.ime = false;
       s.op_tick = -1;
       break;
@@ -1071,6 +1087,7 @@ void GB::ei() {
 #if DEBUG_INTERRUPTS
       printf("%" PRIu64 ": ei\n", s.tick);
 #endif
+      ReadOpInc();
       s.ime_enable = true;
       s.op_tick = -1;
       break;
@@ -1078,6 +1095,10 @@ void GB::ei() {
 }
 
 void GB::halt() {
+  // TODO
+  if (s.op_tick == 3) {
+    ReadOpInc();
+  }
   if ((s.io[IF] & s.io[IE] & 0x1f)) {
     s.dispatch = s.ime;
     s.op = s.next_op_byte;
@@ -1093,6 +1114,7 @@ u8 GB::inc(u8 r) {
 
 void GB::inc_mhl() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(s.hl); break;
     case 11: Write(s.hl, inc(s.z)); s.op_tick = -1; break;
   }
@@ -1100,19 +1122,20 @@ void GB::inc_mhl() {
 
 void GB::inc_rr(u16& rr) {
   switch (s.op_tick) {
-    case 3: rr++; break;
+    case 3: ReadOpInc(); rr++; break;
     case 7: s.op_tick = -1; break;
   }
 }
 
 void GB::inc_r(u8& r) {
   switch (s.op_tick) {
-    case 3: r = inc(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); r = inc(r); s.op_tick = -1; break;
   }
 }
 
 void GB::jp_f_nn(u8 mask, u8 val) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); if (f_is(mask, val)) { s.pc = s.wz; } break;
     case 15: ReadOp(); s.op_tick = -1; break;
@@ -1121,12 +1144,13 @@ void GB::jp_f_nn(u8 mask, u8 val) {
 
 void GB::jp_hl() {
   switch (s.op_tick) {
-    case 3: s.pc = s.hl; ReadOp(); s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.pc = s.hl; ReadOp(); s.op_tick = -1; break;
   }
 }
 
 void GB::jp_nn() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); break;
     case 15: s.pc = s.wz; ReadOp(); s.op_tick = -1; break;
@@ -1135,6 +1159,7 @@ void GB::jp_nn() {
 
 void GB::jr_f_n(u8 mask, u8 val) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); if (f_is(mask, val)) { s.pc += (s8)s.z; } break;
     case 11: ReadOp(); s.op_tick = -1; break;
   }
@@ -1142,6 +1167,7 @@ void GB::jr_f_n(u8 mask, u8 val) {
 
 void GB::jr_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); s.pc += (s8)s.z; break;
     case 11: ReadOp(); s.op_tick = -1; break;
   }
@@ -1149,12 +1175,14 @@ void GB::jr_n() {
 
 void GB::ld_a_mff00_c() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.a = Read(0xff00 + s.c); s.op_tick = -1; break;
   }
 }
 
 void GB::ld_a_mff00_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.a = Read(0xff00 + s.z); s.op_tick = -1; break;
   }
@@ -1162,6 +1190,7 @@ void GB::ld_a_mff00_n() {
 
 void GB::ld_a_mnn() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); break;
     case 15: s.a = Read(s.wz); s.op_tick = -1; break;
@@ -1170,12 +1199,14 @@ void GB::ld_a_mnn() {
 
 void GB::ld_a_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.a = Read(mr); s.op_tick = -1; break;
   }
 }
 
 void GB::ld_hl_sp_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); s.hl = add_sp(s.z); break;
     case 11: s.op_tick = -1; break;
   }
@@ -1183,12 +1214,14 @@ void GB::ld_hl_sp_n() {
 
 void GB::ld_mff00_c_a() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: Write(0xff00 + s.c, s.a); s.op_tick = -1; break;
   }
 }
 
 void GB::ld_mff00_n_a() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: Write(0xff00 + s.z, s.a); s.op_tick = -1; break;
   }
@@ -1196,6 +1229,7 @@ void GB::ld_mff00_n_a() {
 
 void GB::ld_mhl_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: Write(s.hl, s.z); s.op_tick = -1; break;
   }
@@ -1203,6 +1237,7 @@ void GB::ld_mhl_n() {
 
 void GB::ld_mnn_a() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); break;
     case 15: Write(s.wz, s.a); s.op_tick = -1; break;
@@ -1211,6 +1246,7 @@ void GB::ld_mnn_a() {
 
 void GB::ld_mnn_sp() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); break;
     case 15: Write(s.wz + 1, s.sp >> 8); break;
@@ -1220,24 +1256,28 @@ void GB::ld_mnn_sp() {
 
 void GB::ld_mr_r(u16& mr, u8 r, int d) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: Write(mr, r); mr += d; s.op_tick = -1; break;
   }
 }
 
 void GB::ld_r_mr(u8& r, u16& mr, int d) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: r = Read(mr); mr += d; s.op_tick = -1; break;
   }
 }
 
 void GB::ld_r_n(u8& r) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: r = ReadOpInc(); s.op_tick = -1; break;
   }
 }
 
 void GB::ld_rr_nn(u16& rr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); break;
     case 11: s.w = ReadOpInc(); rr = s.wz; s.op_tick = -1; break;
   }
@@ -1245,20 +1285,20 @@ void GB::ld_rr_nn(u16& rr) {
 
 void GB::ld_r_r(u8& rd, u8 rs) {
   switch (s.op_tick) {
-    case 3: rd = rs; s.op_tick = -1; break;
+    case 3: ReadOpInc(); rd = rs; s.op_tick = -1; break;
   }
 }
 
 void GB::ld_sp_hl() {
   switch (s.op_tick) {
-    case 3: s.sp = s.hl; break;
+    case 3: ReadOpInc(); s.sp = s.hl; break;
     case 7: s.op_tick = -1; break;
   }
 }
 
 void GB::nop() {
   switch (s.op_tick) {
-    case 3: s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.op_tick = -1; break;
   }
 }
 
@@ -1269,24 +1309,27 @@ void GB::or_(u8 x) {
 
 void GB::or_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); or_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::or_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); or_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::or_r(u8 r) {
   switch (s.op_tick) {
-    case 3: or_(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); or_(r); s.op_tick = -1; break;
   }
 }
 
 void GB::pop_af() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(s.sp++); break;
     case 11: s.w = Read(s.sp++); s.af = s.wz & 0xfff0; s.op_tick = -1; break;
   }
@@ -1294,6 +1337,7 @@ void GB::pop_af() {
 
 void GB::pop_rr(u16& rr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(s.sp++); break;
     case 11: s.w = Read(s.sp++); rr = s.wz; s.op_tick = -1; break;
   }
@@ -1301,6 +1345,7 @@ void GB::pop_rr(u16& rr) {
 
 void GB::push_rr(u16 rr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 11: Write(--s.sp, rr >> 8); break;
     case 15: Write(--s.sp, rr); s.op_tick = -1; break;
   }
@@ -1308,12 +1353,13 @@ void GB::push_rr(u16 rr) {
 
 void GB::res_r(int n, u8& r) {
   switch (s.op_tick) {
-    case 7: r &= ~(1 << n); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r &= ~(1 << n); s.op_tick = -1; break;
   }
 }
 
 void GB::res_mr(int n, u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, s.z & ~(1 << n)); s.op_tick = -1; break;
   }
@@ -1321,6 +1367,7 @@ void GB::res_mr(int n, u16 mr) {
 
 void GB::ret() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(s.sp++); break;
     case 11: s.w = Read(s.sp++); break;
     case 15: s.pc = s.wz; ReadOp(); s.op_tick = -1; break;
@@ -1329,6 +1376,7 @@ void GB::ret() {
 
 void GB::ret_f(u8 mask, u8 val) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: f_is(mask, val); break;
     case 11: s.z = Read(s.sp++); break;
     case 15: s.w = Read(s.sp++); break;
@@ -1338,7 +1386,7 @@ void GB::ret_f(u8 mask, u8 val) {
 
 void GB::reti() {
   switch (s.op_tick) {
-    case 3: s.ime_enable = false; s.ime = true; break;
+    case 3: ReadOpInc(); s.ime_enable = false; s.ime = true; break;
     case 7: s.z = Read(s.sp++); break;
     case 11: s.w = Read(s.sp++); break;
     case 15: s.pc = s.wz; ReadOp(); s.op_tick = -1; break;
@@ -1361,24 +1409,25 @@ u8 GB::rlc(u8 x) {
 
 void GB::rla() {
   switch (s.op_tick) {
-    case 3: s.a = rl(s.a); s.f &= ~0x80; s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = rl(s.a); s.f &= ~0x80; s.op_tick = -1; break;
   }
 }
 
 void GB::rlca() {
   switch (s.op_tick) {
-    case 3: s.a = rlc(s.a); s.f &= ~0x80; s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = rlc(s.a); s.f &= ~0x80; s.op_tick = -1; break;
   }
 }
 
 void GB::rlc_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = rlc(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = rlc(r); s.op_tick = -1; break;
   }
 }
 
 void GB::rlc_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, rlc(s.z)); s.op_tick = -1; break;
   }
@@ -1386,12 +1435,13 @@ void GB::rlc_mr(u16 mr) {
 
 void GB::rl_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = rl(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = rl(r); s.op_tick = -1; break;
   }
 }
 
 void GB::rl_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, rl(s.z)); s.op_tick = -1; break;
   }
@@ -1413,24 +1463,25 @@ u8 GB::rrc(u8 x) {
 
 void GB::rra() {
   switch (s.op_tick) {
-    case 3: s.a = rr(s.a); s.f &= ~0x80; s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = rr(s.a); s.f &= ~0x80; s.op_tick = -1; break;
   }
 }
 
 void GB::rrca() {
   switch (s.op_tick) {
-    case 3: s.a = rrc(s.a); s.f &= ~0x80; s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = rrc(s.a); s.f &= ~0x80; s.op_tick = -1; break;
   }
 }
 
 void GB::rrc_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = rrc(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = rrc(r); s.op_tick = -1; break;
   }
 }
 
 void GB::rrc_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, rrc(s.z)); s.op_tick = -1; break;
   }
@@ -1438,12 +1489,13 @@ void GB::rrc_mr(u16 mr) {
 
 void GB::rr_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = rr(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = rr(r); s.op_tick = -1; break;
   }
 }
 
 void GB::rr_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, rr(s.z)); s.op_tick = -1; break;
   }
@@ -1451,6 +1503,7 @@ void GB::rr_mr(u16 mr) {
 
 void GB::rst(u8 n) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.wz = n; s.next_op_byte = Read(n); break;
     case 11: Write(--s.sp, s.pc >> 8); break;
     case 15: Write(--s.sp, s.pc); s.pc = s.wz; s.op_tick = -1; break;
@@ -1465,6 +1518,7 @@ u8 GB::sub(u8 x, u8 c) {
 
 void GB::sbc_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7:
       s.z = Read(mr);
       s.a = sub(s.z, (s.f >> 4) & 1);
@@ -1475,6 +1529,7 @@ void GB::sbc_mr(u16 mr) {
 
 void GB::sbc_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7:
       s.z = ReadOpInc();
       s.a = sub(s.z, (s.f >> 4) & 1);
@@ -1485,24 +1540,25 @@ void GB::sbc_n() {
 
 void GB::sbc_r(u8 r) {
   switch (s.op_tick) {
-    case 3: s.a = sub(r, (s.f >> 4) & 1); s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = sub(r, (s.f >> 4) & 1); s.op_tick = -1; break;
   }
 }
 
 void GB::scf() {
   switch (s.op_tick) {
-    case 3: s.f = (s.f & 0x80) | 0x10; s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.f = (s.f & 0x80) | 0x10; s.op_tick = -1; break;
   }
 }
 
 void GB::set_r(int n, u8& r) {
   switch (s.op_tick) {
-    case 7: r |= (1 << n); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r |= (1 << n); s.op_tick = -1; break;
   }
 }
 
 void GB::set_mr(int n, u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, s.z | (1 << n)); s.op_tick = -1; break;
   }
@@ -1517,12 +1573,13 @@ u8 GB::sla(u8 x) {
 
 void GB::sla_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = sla(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = sla(r); s.op_tick = -1; break;
   }
 }
 
 void GB::sla_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, sla(s.z)); s.op_tick = -1; break;
   }
@@ -1537,12 +1594,13 @@ u8 GB::sra(u8 x) {
 
 void GB::sra_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = sra(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = sra(r); s.op_tick = -1; break;
   }
 }
 
 void GB::sra_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, sra(s.z)); s.op_tick = -1; break;
   }
@@ -1557,12 +1615,13 @@ u8 GB::srl(u8 x) {
 
 void GB::srl_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = srl(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = srl(r); s.op_tick = -1; break;
   }
 }
 
 void GB::srl_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, srl(s.z)); s.op_tick = -1; break;
   }
@@ -1572,19 +1631,21 @@ void GB::stop() {}
 
 void GB::sub_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); s.a = sub(s.z, 0); s.op_tick = -1; break;
   }
 }
 
 void GB::sub_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); s.a = sub(s.z, 0); s.op_tick = -1; break;
   }
 }
 
 void GB::sub_r(u8 r) {
   switch (s.op_tick) {
-    case 3: s.a = sub(r, 0); s.op_tick = -1; break;
+    case 3: ReadOpInc(); s.a = sub(r, 0); s.op_tick = -1; break;
   }
 }
 
@@ -1596,12 +1657,13 @@ u8 GB::swap(u8 x) {
 
 void GB::swap_r(u8& r) {
   switch (s.op_tick) {
-    case 7: r = swap(r); s.op_tick = -1; break;
+    case 7: ReadOpInc(); r = swap(r); s.op_tick = -1; break;
   }
 }
 
 void GB::swap_mr(u16 mr) {
   switch (s.op_tick) {
+    case 7: ReadOpInc(); break;
     case 11: s.z = Read(mr); break;
     case 15: Write(mr, swap(s.z)); s.op_tick = -1; break;
   }
@@ -1614,19 +1676,21 @@ void GB::xor_(u8 x) {
 
 void GB::xor_mr(u16 mr) {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = Read(mr); xor_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::xor_n() {
   switch (s.op_tick) {
+    case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); xor_(s.z); s.op_tick = -1; break;
   }
 }
 
 void GB::xor_r(u8 r) {
   switch (s.op_tick) {
-    case 3: xor_(r); s.op_tick = -1; break;
+    case 3: ReadOpInc(); xor_(r); s.op_tick = -1; break;
   }
 }
 
