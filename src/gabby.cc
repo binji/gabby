@@ -194,7 +194,7 @@ struct GB {
   void bit(int n, u8 r);
   void bit_r(int n, u8 r);
   void bit_mr(int n, u16 mr);
-  void call_f_nn(u8 mask, u8 val);
+  void call_cc_nn(u8 mask, u8 val);
   void call_nn();
   void cb();
   void ccf();
@@ -214,10 +214,10 @@ struct GB {
   void inc_mhl();
   void inc_rr(u16& rr);
   void inc_r(u8& r);
-  void jp_f_nn(u8 mask, u8 val);
+  void jp_cc_nn(u8 mask, u8 val);
   void jp_hl();
   void jp_nn();
-  void jr_f_n(u8 mask, u8 val);
+  void jr_cc_n(u8 mask, u8 val);
   void jr_n();
   void ld_a_mff00_c();
   void ld_a_mff00_n();
@@ -246,7 +246,7 @@ struct GB {
   void res_r(int n, u8& r);
   void res_mr(int n, u16 mr);
   void ret();
-  void ret_f(u8 mask, u8 val);
+  void ret_cc(u8 mask, u8 val);
   void reti();
   u8 rl(u8 x);
   u8 rlc(u8 x);
@@ -463,7 +463,7 @@ void GB::StepCPU() {
         case 0x1d: dec_r(s.e); break;
         case 0x1e: ld_r_n(s.e); break;
         case 0x1f: rra(); break;
-        case 0x20: jr_f_n(0x80, 0); break;
+        case 0x20: jr_cc_n(0x80, 0); break;
         case 0x21: ld_rr_nn(s.hl); break;
         case 0x22: ld_mr_r(s.hl, s.a, 1); break;
         case 0x23: inc_rr(s.hl); break;
@@ -471,7 +471,7 @@ void GB::StepCPU() {
         case 0x25: dec_r(s.h); break;
         case 0x26: ld_r_n(s.h); break;
         case 0x27: daa(); break;
-        case 0x28: jr_f_n(0x80, 0x80); break;
+        case 0x28: jr_cc_n(0x80, 0x80); break;
         case 0x29: add_hl_rr(s.hl); break;
         case 0x2a: ld_r_mr(s.a, s.hl, 1); break;
         case 0x2b: dec_rr(s.hl); break;
@@ -479,7 +479,7 @@ void GB::StepCPU() {
         case 0x2d: dec_r(s.l); break;
         case 0x2e: ld_r_n(s.l); break;
         case 0x2f: cpl(); break;
-        case 0x30: jr_f_n(0x10, 0); break;
+        case 0x30: jr_cc_n(0x10, 0); break;
         case 0x31: ld_rr_nn(s.sp); break;
         case 0x32: ld_mr_r(s.hl, s.a, -1); break;
         case 0x33: inc_rr(s.sp); break;
@@ -487,7 +487,7 @@ void GB::StepCPU() {
         case 0x35: dec_mhl(); break;
         case 0x36: ld_mhl_n(); break;
         case 0x37: scf(); break;
-        case 0x38: jr_f_n(0x10, 0x10); break;
+        case 0x38: jr_cc_n(0x10, 0x10); break;
         case 0x39: add_hl_rr(s.sp); break;
         case 0x3a: ld_r_mr(s.a, s.hl, -1); break;
         case 0x3b: dec_rr(s.sp); break;
@@ -518,33 +518,33 @@ void GB::StepCPU() {
         REG_OPS(0xa8, xor)
         REG_OPS(0xb0, or)
         REG_OPS(0xb8, cp)
-        case 0xc0: ret_f(0x80, 0); break;
+        case 0xc0: ret_cc(0x80, 0); break;
         case 0xc1: pop_rr(s.bc); break;
-        case 0xc2: jp_f_nn(0x80, 0); break;
+        case 0xc2: jp_cc_nn(0x80, 0); break;
         case 0xc3: jp_nn(); break;
-        case 0xc4: call_f_nn(0x80, 0); break;
+        case 0xc4: call_cc_nn(0x80, 0); break;
         case 0xc5: push_rr(s.bc); break;
         case 0xc6: add_n(); break;
         case 0xc7: rst(0x00); break;
-        case 0xc8: ret_f(0x80, 0x80); break;
+        case 0xc8: ret_cc(0x80, 0x80); break;
         case 0xc9: ret(); break;
-        case 0xca: jp_f_nn(0x80, 0x80); break;
+        case 0xca: jp_cc_nn(0x80, 0x80); break;
         case 0xcb: cb(); break;
-        case 0xcc: call_f_nn(0x80, 0x80); break;
+        case 0xcc: call_cc_nn(0x80, 0x80); break;
         case 0xcd: call_nn(); break;
         case 0xce: adc_n(); break;
         case 0xcf: rst(0x08); break;
-        case 0xd0: ret_f(0x10, 0); break;
+        case 0xd0: ret_cc(0x10, 0); break;
         case 0xd1: pop_rr(s.de); break;
-        case 0xd2: jp_f_nn(0x10, 0); break;
-        case 0xd4: call_f_nn(0x10, 0); break;
+        case 0xd2: jp_cc_nn(0x10, 0); break;
+        case 0xd4: call_cc_nn(0x10, 0); break;
         case 0xd5: push_rr(s.de); break;
         case 0xd6: sub_n(); break;
         case 0xd7: rst(0x10); break;
-        case 0xd8: ret_f(0x10, 0x10); break;
+        case 0xd8: ret_cc(0x10, 0x10); break;
         case 0xd9: reti(); break;
-        case 0xda: jp_f_nn(0x10, 0x10); break;
-        case 0xdc: call_f_nn(0x10, 0x10); break;
+        case 0xda: jp_cc_nn(0x10, 0x10); break;
+        case 0xdc: call_cc_nn(0x10, 0x10); break;
         case 0xde: sbc_n(); break;
         case 0xdf: rst(0x18); break;
         case 0xe0: ld_mff00_n_a(); break;
@@ -958,7 +958,7 @@ void GB::bit_mr(int n, u16 mr) {
   }
 }
 
-void GB::call_f_nn(u8 mask, u8 val) {
+void GB::call_cc_nn(u8 mask, u8 val) {
   switch (s.op_tick) {
     case 7: ReadOpInc(); break;
     case 11: if (!f_is(mask, val)) { ++s.pc; } s.z = ReadOpInc(); break;
@@ -1131,7 +1131,7 @@ void GB::inc_r(u8& r) {
   }
 }
 
-void GB::jp_f_nn(u8 mask, u8 val) {
+void GB::jp_cc_nn(u8 mask, u8 val) {
   switch (s.op_tick) {
     case 7: ReadOpInc(); break;
     case 11: if (!f_is(mask, val)) { ++s.pc; } s.z = ReadOpInc(); break;
@@ -1153,7 +1153,7 @@ void GB::jp_nn() {
   }
 }
 
-void GB::jr_f_n(u8 mask, u8 val) {
+void GB::jr_cc_n(u8 mask, u8 val) {
   switch (s.op_tick) {
     case 3: ReadOpInc(); break;
     case 7: s.z = ReadOpInc(); if (f_is(mask, val)) { s.pc += (s8)s.z; } break;
@@ -1369,7 +1369,7 @@ void GB::ret() {
   }
 }
 
-void GB::ret_f(u8 mask, u8 val) {
+void GB::ret_cc(u8 mask, u8 val) {
   switch (s.op_tick) {
     case 3: ReadOpInc(); break;
     case 7: f_is(mask, val); break;
