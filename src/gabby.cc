@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -131,9 +132,8 @@ struct State {
 
   Tick dma_start_tick;
   u16 dma_addr;
-  bool dma_active;
 
-  u16 div;
+  Tick last_div_reset;
   bool ime, ime_enable, dispatch;
   bool sram_enabled;
   u8 mbc_2xxx, mbc_3xxx, mbc_23xxx, mbc_45xxx, mbc_mode;
@@ -154,7 +154,7 @@ struct GB {
   u8 ReadOpInc();
   void DispatchInterrupt();
   void StepTimer();
-  void CheckDiv(u16 old_div);
+  void CheckDiv(u16 old_div, u16 div);
   void StepDMA();
   void StepPPU();
   void StepPPU_Mode2();
@@ -372,10 +372,11 @@ State::State(GB& gb) {
       0,    0,    0,    0,    0xff, 0xfc, 0xff, 0xff, 0,    0};
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
-  div = 0xac00;
+  last_div_reset = -0xac00;
   ppu_mode = 2;
   ppu_line_tick = 2;
   ppu_pixel = ppu_buffer;
+  dma_start_tick = std::numeric_limits<Tick>::max();
 }
 
 GB::GB(Buffer&& rom_, Variant variant)
@@ -404,8 +405,8 @@ GB::GB(Buffer&& rom_, Variant variant)
 #define LD_R_OPS(code, r) REG_OPS_N(code, ld_r, r)
 
 void GB::Step() {
-  StepTimer();
   StepCPU();
+  StepTimer();
   StepDMA();
   StepPPU();
   ++s.tick;
@@ -664,9 +665,13 @@ void GB::DispatchInterrupt() {
   }
 }
 
+#define DMA_DELAY 0
+#define DMA_TIME 645
+
 bool GB::UsingVRAM() const { return s.ppu_mode == 3; }
 bool GB::UsingOAM() const {
-  return (s.dma_active && s.tick >= s.dma_start_tick) || s.ppu_mode == 2;
+  return (s.tick >= s.dma_start_tick && s.tick < s.dma_start_tick + DMA_TIME) ||
+         s.ppu_mode == 2;
 }
 
 u8 GB::Read(u16 addr) {
@@ -790,9 +795,10 @@ void GB::Write_IO(u8 addr, u8 val) {
 
   switch (addr) {
     case DIV: {
-      u16 old_div = s.div;
-      s.io[DIV] = s.div = 0;
-      CheckDiv(old_div);
+      u16 old_div = s.tick - s.last_div_reset;
+      s.last_div_reset = s.tick;
+      s.io[DIV] = 0;
+      CheckDiv(old_div, 0);
       break;
     }
     case LCDC:
@@ -809,8 +815,7 @@ void GB::Write_IO(u8 addr, u8 val) {
       }
       break;
     case DMA:
-      s.dma_active = true;
-      s.dma_start_tick = s.tick + 4;
+      s.dma_start_tick = s.tick + DMA_DELAY;
       s.dma_addr = val << 8;
 #if DEBUG_DMA
       printf("%" PRIu64 ": dma triggered\n", s.tick);
@@ -1626,17 +1631,17 @@ void GB::xor_r(u8 r) {
 }
 
 void GB::StepTimer() {
-  u16 old_div = s.div++;
-  s.io[DIV] = s.div >> 8;
+  u16 div = s.tick + 1 - s.last_div_reset;
+  s.io[DIV] = div >> 8;
   if (!(s.io[TAC] & 4)) {
     return;
   }
-  CheckDiv(old_div);
+  CheckDiv(div - 1, div);
 }
 
-void GB::CheckDiv(u16 old_div) {
+void GB::CheckDiv(u16 old_div, u16 div) {
   static const u16 tima_mask[] = {1 << 9, 1 << 3, 1 << 5, 1 << 7};
-  if (((old_div ^ s.div) & ~s.div) & tima_mask[s.io[TAC] & 3]) {
+  if (((old_div ^ div) & ~div) & tima_mask[s.io[TAC] & 3]) {
     if (++s.io[TIMA] == 0) {
       s.io[TIMA] = s.io[TMA];
       s.io[IF] |= 4;
@@ -1648,23 +1653,21 @@ void GB::CheckDiv(u16 old_div) {
 }
 
 void GB::StepDMA() {
-  if (!s.dma_active) {
-    return;
-  }
   if (s.tick >= s.dma_start_tick) {
     Tick delta = s.tick - s.dma_start_tick;
-    if (delta >= 640) {
+    if (delta >= DMA_TIME) {
 #if DEBUG_DMA
       printf("%" PRIu64 ": dma finished\n", s.tick);
 #endif
-      s.dma_active = false;
+      s.dma_start_tick = std::numeric_limits<Tick>::max();
       return;
     }
 
     if ((s.tick & 3) == 3) {
       u16 offset = delta >> 2;
-      assert(offset < 160);
-      s.oam[offset] = Read(s.dma_addr + offset);
+      if (offset < 160) {
+        s.oam[offset] = Read(s.dma_addr + offset);
+      }
     }
   }
 }
