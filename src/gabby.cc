@@ -22,6 +22,7 @@
 
 #define DEBUG_DMA 0
 #define DEBUG_INTERRUPTS 0
+#define DEBUG_MODE 1
 
 // Not sure about these yet.
 #define DMA_DELAY 0
@@ -798,7 +799,13 @@ void GB::Write_IO(u8 addr, u8 val) {
     case LCDC:
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
-        s.ppu_line_start_tick = s.ppu_mode_start_tick = s.tick - LCD_START_TICK;
+#if DEBUG_MODE
+        if (enabled) {
+          printf("%" PRIu64 ": lcd on\n", s.tick);
+        }
+#endif
+        s.ppu_line_start_tick = s.ppu_mode_start_tick =
+            s.tick - LCD_START_TICK + 1;
         s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = enabled ? 2 : 0;
@@ -1744,14 +1751,14 @@ void GB::StepPPU() {
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 452) {
+      if (line_tick == 451) {
         if (s.ppu_line_y == 153) {
           stat &= ~3;
         } else {
           ++ly;
           CheckLyLyc();
         }
-      } else if (line_tick == 456) {
+      } else if (line_tick == 455) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
           SetPPUMode(2);
@@ -1765,7 +1772,7 @@ void GB::StepPPU() {
           s.ppu_line_y = ly = 0;
           SetPPUMode(2);
         }
-        s.ppu_line_start_tick = s.tick;
+        s.ppu_line_start_tick = s.tick + 1;
       }
       break;
 
@@ -1777,7 +1784,7 @@ void GB::StepPPU() {
 void GB::StepPPU_Mode2() {
   // TODO: sprite stuff
   Tick mode_tick = s.tick - s.ppu_mode_start_tick;
-  if (mode_tick == 80) {
+  if (mode_tick == 79) {
     SetPPUMode(3);
     s.ppu_window = false;
     s.ppu_line_x = 0;
@@ -1872,6 +1879,9 @@ void GB::SetPPUMode(u8 mode) {
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
   s.ppu_mode_start_tick = s.tick + 1;
+#if DEBUG_MODE
+  printf("%" PRIu64 ": mode: %d\n", s.tick, mode);
+#endif
   u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
