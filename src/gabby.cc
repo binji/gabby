@@ -126,6 +126,8 @@ struct Cart {
   CGB cgb;
   ROMSize rom_size;
   SRAMSize sram_size;
+  u8 rom_bank_mask, sram_bank_mask;
+  u16 sram_addr_mask;
 };
 
 struct GB;
@@ -365,9 +367,23 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 
   ThrowUnless(rom[0x148] <= 8, "Invalid ROM size.");
   rom_size = static_cast<ROMSize>(rom[0x148]);
+  rom_bank_mask = (2 << (u8)rom_size) - 1;
 
   ThrowUnless(rom[0x149] <= 5, "Invalid SRAM size.");
   sram_size = static_cast<SRAMSize>(rom[0x149]);
+  if (mbc == MBC::_2) {
+    sram_bank_mask = 0;
+    sram_addr_mask = 0x1ff;
+  } else {
+    switch (sram_size) {
+      case SRAMSize::None: sram_bank_mask = sram_addr_mask = 0; break;
+      case SRAMSize::_2k: sram_bank_mask = 0; sram_addr_mask = 0x7ff; break;
+      case SRAMSize::_8k: sram_bank_mask = 0; sram_addr_mask = 0x1fff; break;
+      case SRAMSize::_32k: sram_bank_mask = 3; sram_addr_mask = 0x1fff; break;
+      case SRAMSize::_128k: sram_bank_mask = 15; sram_addr_mask = 0x1fff; break;
+      case SRAMSize::_64k: sram_bank_mask = 7; sram_addr_mask = 0x1fff; break;
+    }
+  }
 }
 
 State::State(GB& gb) {
@@ -695,7 +711,9 @@ u8 GB::Read(u16 addr) {
     case 0: case 1: case 2: case 3: return s.rom0p[addr & 0x3fff];
     case 4: case 5: case 6: case 7: return s.rom1p[addr & 0x3fff];
     case 8: case 9: return UsingVRAM() ? 0xff : s.vramp[addr & 0x1fff];
-    case 10: case 11: return s.sramp[addr & 0x1fff];
+    case 10: case 11:
+      return s.sram_enabled ? s.sramp[addr & cart.sram_addr_mask & 0x1fff]
+                            : 0xff;
     case 12: case 14: return s.wram0p[addr & 0xfff];
     case 13: return s.wram1p[addr & 0xfff];
     case 15:
@@ -714,7 +732,11 @@ void GB::Write(u16 addr, u8 val) {
       Write_ROM(addr & 0x7fff, val);
       break;
     case 8: case 9: if (!UsingVRAM()) { s.vramp[addr & 0x1fff] = val; } break;
-    case 10: case 11: s.sramp[addr & 0x1fff] = val; break;
+    case 10: case 11:
+      if (s.sram_enabled) {
+        s.sramp[addr & cart.sram_addr_mask & 0x1fff] = val;
+      }
+      break;
     case 12: case 14: s.wram0p[addr & 0xfff] = val; break;
     case 13: s.wram1p[addr & 0xfff] = val; break;
     case 15:
@@ -742,12 +764,16 @@ void GB::Write_ROM(u16 addr, u8 val) {
       case MBC::_1: mask = 0x1f; shift = 5; goto mbc1_shared;
       case MBC::_1M: mask = 0xf; shift = 4; goto mbc1_shared;
       mbc1_shared:
-        u8 hi_bank = s.mbc_23xxx << shift;
+        u8 hi_bank = (s.mbc_45xxx & 3) << shift;
         if (s.mbc_mode) {
           rom0_bank |= hi_bank;
-          sram_bank = s.mbc_45xxx;
+          sram_bank = (s.mbc_45xxx & 3);
         }
-        rom1_bank = s.mbc_23xxx ? (s.mbc_23xxx & mask) : 1;
+        rom1_bank = s.mbc_23xxx & mask;
+        if (rom1_bank == 0) {
+          ++rom1_bank;
+        }
+        rom1_bank |= hi_bank;
         break;
     }
     case MBC::_2:
@@ -774,9 +800,9 @@ void GB::Write_ROM(u16 addr, u8 val) {
     case MBC::MMM01: break;  // TODO
     default: break;
   }
-  s.rom0p = rom.data() + (rom0_bank << 14);
-  s.rom1p = rom.data() + (rom1_bank << 14);
-  s.sramp = s.sram + (sram_bank << 13);
+  s.rom0p = rom.data() + ((rom0_bank & cart.rom_bank_mask) << 14);
+  s.rom1p = rom.data() + ((rom1_bank & cart.rom_bank_mask) << 14);
+  s.sramp = s.sram + ((sram_bank & cart.sram_bank_mask) << 13);
 }
 
 void GB::Write_IO(u8 addr, u8 val) {
