@@ -176,7 +176,7 @@ struct GB {
   u8 ReadOpInc();
   void DispatchInterrupt();
   void StepTimer();
-  void CheckDiv(u16 old_div, u16 div);
+  void CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac);
   void StepDMA();
   void StepPPU();
   void StepPPU_Mode2();
@@ -188,6 +188,7 @@ struct GB {
   static bool falling(Tick tick) { return (tick & 1) == 1; }
   Cycle cycles() const { return s.tick / 2.0; }
   static Cycle cycles(Tick tick) { return tick / 2.0; }
+  u16 div() const { return (s.tick - s.div_reset_tick) >> 1; }
 
   void Print(const char* fmt, ...) const;
   int Disassemble(u16 addr, char* buffer, size_t size);
@@ -837,12 +838,18 @@ void GB::Write_IO(u8 addr, u8 val) {
 
   switch (addr) {
     case DIV: {
-      u16 old_div = (s.tick - s.div_reset_tick) >> 1;
+      u16 old_div = div();
       s.div_reset_tick = s.tick;
       s.io[DIV] = 0;
-      CheckDiv(old_div, 0);
+      CheckDiv(old_div, 0, s.io[TAC], s.io[TAC]);
       break;
     }
+    case TAC:
+      if (!(old & 4)) {
+        u16 cur_div = div();
+        CheckDiv(cur_div, (byte & 4) ? 0 : cur_div, old, byte);
+      }
+      break;
     case LCDC:
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
@@ -1752,18 +1759,25 @@ void GB::xor_r(u8 r) {
 }
 
 void GB::StepTimer() {
-  u16 div = (s.tick + 2 - s.div_reset_tick) >> 1;
-  s.io[DIV] = div >> 8;
-  if (!(s.io[TAC] & 4)) {
+  u16 new_div = div() + 1;
+  u8 tac = s.io[TAC];
+  s.io[DIV] = new_div >> 8;
+  if (!(tac & 4)) {
     return;
   }
-  CheckDiv(div - 1, div);
+  CheckDiv(new_div - 1, new_div, tac, tac);
 }
 
-void GB::CheckDiv(u16 old_div, u16 div) {
+void GB::CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac) {
   static const u16 tima_mask[] = {1 << 9, 1 << 3, 1 << 5, 1 << 7};
-  if (((old_div ^ div) & ~div) & tima_mask[s.io[TAC] & 3]) {
+  bool old_bit = old_div & tima_mask[old_tac & 3];
+  bool bit = new_div & tima_mask[new_tac & 3];
+  if (old_bit != bit && !bit) {
     if (++s.io[TIMA] == 0) {
+#if 1
+      Print("tima overflow, div:%04x->%04x tac:%d->%d\n", old_div, new_div,
+            old_tac, new_tac);
+#endif
       s.io[TIMA] = s.io[TMA];
       s.io[IF] |= 4;
 #if DEBUG_INTERRUPTS
