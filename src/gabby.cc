@@ -20,8 +20,13 @@
 #include <utility>
 #include <vector>
 
-#define DEBUG_DMA 1
+#define DEBUG_DMA 0
 #define DEBUG_INTERRUPTS 0
+
+// Not sure about these yet.
+#define DMA_DELAY 0
+#define DMA_TIME 645
+#define LCD_START_TICK 4
 
 using s8 = int8_t;
 using s16 = int16_t;
@@ -123,7 +128,8 @@ struct State {
 
   u8 op, cb_op, next_op_byte;
 
-  u16 ppu_line_tick, ppu_mode_tick, ppu_map_addr, ppu_tile_addr;
+  Tick ppu_line_start_tick, ppu_mode_start_tick;
+  u16 ppu_map_addr, ppu_tile_addr;
   u8 ppu_mode, ppu_stall;
   u8 ppu_line_x, ppu_line_y, ppu_draw_y;
   u8 ppu_map, ppu_tile[2], ppu_next_tile[2];
@@ -133,7 +139,7 @@ struct State {
   Tick dma_start_tick;
   u16 dma_addr;
 
-  Tick last_div_reset;
+  Tick div_reset_tick;
   bool ime, ime_enable, dispatch;
   bool sram_enabled;
   u8 mbc_2xxx, mbc_3xxx, mbc_23xxx, mbc_45xxx, mbc_mode;
@@ -372,9 +378,9 @@ State::State(GB& gb) {
       0,    0,    0,    0,    0xff, 0xfc, 0xff, 0xff, 0,    0};
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
-  last_div_reset = -0xac00;
+  div_reset_tick = -0xac00;
   ppu_mode = 2;
-  ppu_line_tick = 2;
+  ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK;
   ppu_pixel = ppu_buffer;
   dma_start_tick = std::numeric_limits<Tick>::max();
 }
@@ -656,9 +662,6 @@ void GB::DispatchInterrupt() {
   }
 }
 
-#define DMA_DELAY 0
-#define DMA_TIME 645
-
 bool GB::UsingVRAM() const { return s.ppu_mode == 3; }
 bool GB::UsingOAM() const {
   return (s.tick >= s.dma_start_tick && s.tick < s.dma_start_tick + DMA_TIME) ||
@@ -786,8 +789,8 @@ void GB::Write_IO(u8 addr, u8 val) {
 
   switch (addr) {
     case DIV: {
-      u16 old_div = s.tick - s.last_div_reset;
-      s.last_div_reset = s.tick;
+      u16 old_div = s.tick - s.div_reset_tick;
+      s.div_reset_tick = s.tick;
       s.io[DIV] = 0;
       CheckDiv(old_div, 0);
       break;
@@ -795,8 +798,7 @@ void GB::Write_IO(u8 addr, u8 val) {
     case LCDC:
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
-        s.ppu_line_tick = 2;
-        s.ppu_mode_tick = 0;
+        s.ppu_line_start_tick = s.ppu_mode_start_tick = s.tick - LCD_START_TICK;
         s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = enabled ? 2 : 0;
@@ -1690,7 +1692,7 @@ void GB::xor_r(u8 r) {
 }
 
 void GB::StepTimer() {
-  u16 div = s.tick + 1 - s.last_div_reset;
+  u16 div = s.tick + 1 - s.div_reset_tick;
   s.io[DIV] = div >> 8;
   if (!(s.io[TAC] & 4)) {
     return;
@@ -1738,18 +1740,18 @@ void GB::StepPPU() {
   u8& ly = s.io[LY];
   u8& stat = s.io[STAT];
 
-  ++s.ppu_line_tick;
+  Tick line_tick = s.tick - s.ppu_line_start_tick;
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (s.ppu_line_tick == 452) {
+      if (line_tick == 452) {
         if (s.ppu_line_y == 153) {
           stat &= ~3;
         } else {
           ++ly;
           CheckLyLyc();
         }
-      } else if (s.ppu_line_tick == 456) {
+      } else if (line_tick == 456) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
           SetPPUMode(2);
@@ -1763,7 +1765,7 @@ void GB::StepPPU() {
           s.ppu_line_y = ly = 0;
           SetPPUMode(2);
         }
-        s.ppu_line_tick = 0;
+        s.ppu_line_start_tick = s.tick;
       }
       break;
 
@@ -1774,7 +1776,8 @@ void GB::StepPPU() {
 
 void GB::StepPPU_Mode2() {
   // TODO: sprite stuff
-  if (++s.ppu_mode_tick == 80) {
+  Tick mode_tick = s.tick - s.ppu_mode_start_tick;
+  if (mode_tick == 80) {
     SetPPUMode(3);
     s.ppu_window = false;
     s.ppu_line_x = 0;
@@ -1783,7 +1786,8 @@ void GB::StepPPU_Mode2() {
 }
 
 void GB::StepPPU_Mode3() {
-  switch (s.ppu_mode_tick++) {
+  Tick mode_tick = s.tick - s.ppu_mode_start_tick;
+  switch (mode_tick) {
     case 0: {
       if (s.ppu_window) {
         s.ppu_draw_y = s.ppu_line_y - s.io[WY];
@@ -1855,9 +1859,9 @@ void GB::StepPPU_Mode3() {
   s.ppu_tile[1] <<= 1;
 
   if (!s.ppu_window && (s.io[LCDC] & 0x20) && s.ppu_line_y >= s.io[WY] &&
-      s.ppu_mode_tick == s.io[WX] + 6) {
+      mode_tick == s.io[WX] + 6) {
     s.ppu_stall = 6;
-    s.ppu_mode_tick = 0;
+    s.ppu_mode_start_tick = s.tick + 1;
     s.ppu_window = true;
   }
 }
@@ -1867,7 +1871,7 @@ void GB::SetPPUMode(u8 mode) {
   u8& if_ = s.io[IF];
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
-  s.ppu_mode_tick = 0;
+  s.ppu_mode_start_tick = s.tick + 1;
   u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
