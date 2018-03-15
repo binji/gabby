@@ -96,7 +96,7 @@
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/intr_2_mode0_timing_sprites_scx2_nops.gb", 221, "!7e8e6c6f0dd813438c01b947aad0ab03912fdddb"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/intr_2_mode0_timing_sprites_scx3_nops.gb", 221, "!7e8e6c6f0dd813438c01b947aad0ab03912fdddb"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/intr_2_mode0_timing_sprites_scx4_nops.gb", 221, "!7e8e6c6f0dd813438c01b947aad0ab03912fdddb"],
-  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/intr_2_timing.gb", 9, "92db41dde5c25f8627f307d7866db7348717e91d"],
+  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/intr_2_timing.gb", 16, "92db41dde5c25f8627f307d7866db7348717e91d"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/lcdon_mode_timing.gb", 19, "7db47d7c8468f07804e1f16c616f1b1e1a97f98c"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly00_01_mode0_2.gb", 23, "25962e2789012b949399e507eb2127a71cebbafb"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly00_mode0_2-GS.gb", 27, "599aca65b5055f35cf44ca42a82b9410ca4e6fcd"],

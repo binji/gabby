@@ -24,6 +24,8 @@
 #define DEBUG_DMA 0
 #define DEBUG_INTERRUPTS 0
 #define DEBUG_MODE 0
+#define DEBUG_WINDOW 0
+#define DEBUG_SCROLL 0
 #define SLOW 0
 
 #if SLOW
@@ -842,11 +844,17 @@ void GB::Write_IO(u8 addr, u8 val) {
 #endif
       break;
 
-#if 0
+#if DEBUG_WINDOW
     case WX:
       Print("wx: %d ly: %d\n", cycles(), s.io[WX], s.io[LY]);
       break;
 
+    case WY:
+      Print("wy: %d ly: %d\n", cycles(), s.io[WY], s.io[LY]);
+      break;
+#endif
+
+#if DEBUG_SCROLL
     case SCX:
       Print("scx: %d ly: %d\n", cycles(), s.io[SCX], s.io[LY]);
       break;
