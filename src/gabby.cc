@@ -157,7 +157,7 @@ struct State {
   u16 dma_addr;
 
   Tick div_reset_tick;
-  bool ime, ime_enable, intr, dispatch, halt, halt_bug;
+  bool ime, ime_enable, dispatch, halt_bug;
   bool sram_enabled;
   u8 mbc_2xxx, mbc_3xxx, mbc_23xxx, mbc_45xxx, mbc_mode;
 
@@ -459,8 +459,7 @@ void GB::StepCPU() {
     case 0: case 2:
       break;
     case 4:
-      s.intr = !!(s.io[IF] & s.io[IE] & 0x1f);
-      s.dispatch = s.ime && s.intr;
+      s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
       s.ime = s.ime_enable ? true : s.ime;
       s.ime_enable = false;
 #if DEBUG_INTERRUPTS
@@ -472,7 +471,7 @@ void GB::StepCPU() {
     case 6:
       if (s.dispatch) { DispatchInterrupt(); break; }
       s.op = Read(s.pc++);
-      if (s.halt_bug) { s.pc--; s.halt_bug = false; }
+      if (s.halt_bug) { --s.pc; s.halt_bug = false; }
       // Fallthrough.
     default:
       if (s.dispatch) { DispatchInterrupt(); break; }
@@ -684,6 +683,9 @@ void GB::DispatchInterrupt() {
         if (intr & (1 << i)) {
           s.io[IF] &= ~(1 << i);
           s.wz = 0x40 + (i << 3);
+#if DEBUG_INTERRUPTS
+          Print("dispatch to interrupt %d @ %04x\n", 1 << i, s.wz);
+#endif
           break;
         }
       }
@@ -1106,13 +1108,13 @@ void GB::ei() {
 }
 
 void GB::halt() {
-  if (s.intr) {
-    if (!s.halt) { s.halt_bug = true; }
-  } else {
-    --s.pc;
+  if (s.op_cy == 6 || (s.op_cy & 7) == 4) {
+    if (s.io[IF] & s.io[IE] & 0x1f) {
+      s.dispatch = s.ime;
+      if (!s.ime && s.op_cy == 6) { s.halt_bug = true; }
+      s.op_cy &= 7;
+    }
   }
-  s.halt = !s.intr;
-  s.op_cy = -2;
 }
 
 u8 GB::inc(u8 r) {
@@ -2044,7 +2046,7 @@ void GB::PrintInstruction(u16 addr) {
 }
 
 void GB::Trace() {
-  if (s.op_cy == 0 && (s.tick & 1) == 0 && !s.halt) {
+  if (s.op_cy == 0 && (s.tick & 1) == 0) {
     printf("A:%02X F:%c%c%c%c BC:%04X DE:%04x HL:%04x SP:%04x PC:%04x", s.a,
            (s.f & 0x80) ? 'Z' : '-', (s.f & 0x40) ? 'N' : '-',
            (s.f & 0x20) ? 'H' : '-', (s.f & 0x10) ? 'C' : '-', s.bc, s.de, s.hl,
