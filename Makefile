@@ -1,6 +1,6 @@
 .SUFFIXES:
 
-all: debug
+all: release
 
 define BUILD
 out/$1:
