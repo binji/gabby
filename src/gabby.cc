@@ -415,7 +415,7 @@ State::State(GB& gb) {
       0,    0,    0,    0,    0xff, 0xfc, 0xff, 0xff, 0,    0};
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
-  div_reset_tick = -0xac00 * 2;
+  div_reset_tick = -0xabcc * 2;
   ppu_mode = 2;
   ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK + 1;
   ppu_pixel = ppu_buffer;
