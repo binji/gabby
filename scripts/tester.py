@@ -53,10 +53,11 @@ def RunTest(test, options):
       elif options.verbose > 1:
         message = OK + test.rom
     else:
+      message = '%s %d => %s' % (test.rom, test.frames, actual)
       if expected == '' or expect_fail:
-        message = UNKNOWN + '%s => %s' % (test.rom, actual)
+        message = UNKNOWN + message
       else:
-        message = FAIL + '%s => %s' % (test.rom, actual)
+        message = FAIL + message
 
     passed = ok and not expect_fail
     duration = time.time() - start_time
