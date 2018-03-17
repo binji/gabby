@@ -21,6 +21,8 @@
 #include <utility>
 #include <vector>
 
+#include <sys/time.h>
+
 #define DEBUG_DMA 0
 #define DEBUG_INTERRUPTS 0
 #define DEBUG_MODE 0
@@ -1660,7 +1662,7 @@ void GB::CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac) {
   bool bit = new_div & tima_mask[new_tac & 3];
   if (old_bit != bit && !bit) {
     if (++s.io[TIMA] == 0) {
-#if 1
+#if 0
       Print("tima overflow, div:%04x->%04x tac:%d->%d\n", old_div, new_div,
             old_tac, new_tac);
 #endif
@@ -2151,12 +2153,19 @@ void ParseArguments(int argc, char** argv) {
   }
 }
 
+f64 GetTime() {
+  timeval tp;
+  gettimeofday(&tp, nullptr);
+  return (f64)tp.tv_sec + (f64)tp.tv_usec / 1000000.0;
+}
+
 int main(int argc, char** argv) {
   try {
     ParseArguments(argc, argv);
     GB gb(ReadFile(s_filename), Variant::Guess);
 
     Tick run_ticks = s_frames * 70224u;
+    f64 start_time = GetTime();
     if (s_trace) {
       for (Tick i = 0; i < run_ticks; ++i) {
         gb.Trace();
@@ -2167,6 +2176,10 @@ int main(int argc, char** argv) {
         gb.Step();
       }
     }
+    f64 host_time = GetTime() - start_time;
+    f64 gb_time = (f64)run_ticks / 0x400000;
+    printf("time: gb=%.1fs host=%.1fs (%.1fx)\n", gb_time, host_time,
+           gb_time / host_time);
 
     if (s_ppm_filename) {
       WriteFramePPM(gb, s_ppm_filename);
