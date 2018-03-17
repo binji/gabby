@@ -2156,11 +2156,16 @@ int main(int argc, char** argv) {
     ParseArguments(argc, argv);
     GB gb(ReadFile(s_filename), Variant::Guess);
 
-    for (Tick i = 0; i < s_frames * 70224u; ++i) {
-      if (s_trace) {
+    Tick run_ticks = s_frames * 70224u;
+    if (s_trace) {
+      for (Tick i = 0; i < run_ticks; ++i) {
         gb.Trace();
+        gb.Step();
       }
-      gb.Step();
+    } else {
+      for (Tick i = 0; i < run_ticks; ++i) {
+        gb.Step();
+      }
     }
 
     if (s_ppm_filename) {
