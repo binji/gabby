@@ -36,5 +36,8 @@ add_executable(gabby
   src/gabby.cc
 )
 
+set_property(TARGET gabby PROPERTY CXX_STANDARD 11)
+set_property(TARGET gabby PROPERTY CXX_STANDARD_REQUIRED ON)
+
 install(TARGETS gabby DESTINATION bin)
 target_copy_to_bin(gabby)
