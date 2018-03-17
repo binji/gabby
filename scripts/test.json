@@ -53,7 +53,7 @@
   ["mooneye", "test/mooneye-gb/build/acceptance/ret_timing.gb", 17, "d2c5e9902e751f0ac0dc9cd2438c9b54d76dc125"],
   ["mooneye", "test/mooneye-gb/build/acceptance/rst_timing.gb", 16, "4c8c495b6860ab271c6892409e86a8221fc09b72"],
   ["mooneye", "test/mooneye-gb/build/acceptance/timer/div_write.gb", 54, "d2c5e9902e751f0ac0dc9cd2438c9b54d76dc125"],
-  ["mooneye", "test/mooneye-gb/build/acceptance/timer/rapid_toggle.gb", 13, "b95fb07380632305e7edf30777064877198d64d8"],
+  ["mooneye", "test/mooneye-gb/build/acceptance/timer/rapid_toggle.gb", 13, "3471d0af00cf48b08bcd33e8d4a84ad841f3b013"],
   ["mooneye", "test/mooneye-gb/build/acceptance/timer/tim00_div_trigger.gb", 13, "245aea6bc6462ff810e4ed6e4398def1480613b8"],
   ["mooneye", "test/mooneye-gb/build/acceptance/timer/tim00.gb", 13, "245aea6bc6462ff810e4ed6e4398def1480613b8"],
   ["mooneye", "test/mooneye-gb/build/acceptance/timer/tim01_div_trigger.gb", 13, "5bd14cf7193a9c9d128c960779101b5111ce5a96"],

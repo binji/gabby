@@ -167,7 +167,7 @@ struct State {
   bool dma_active;
   u16 dma_addr;
 
-  Tick div_reset_tick;
+  Tick div_reset_tick, tima_overflow_tick;
   bool ime, ime_enable, dispatch, halt_bug;
   bool sram_enabled;
   u8 mbc_2xxx, mbc_3xxx, mbc_23xxx, mbc_45xxx, mbc_mode;
@@ -186,7 +186,7 @@ struct GB {
   void StepCPU();
   void DispatchInterrupt();
   void StepTimer();
-  void CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac);
+  bool CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac);
   void StepDMA();
   void StepPPU();
   void StepPPU_Mode2();
@@ -426,6 +426,7 @@ State::State(GB& gb) {
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
   div_reset_tick = -0xabcc * 2;
+  tima_overflow_tick = -20;  // Doesn't matter as long as < 18.
   ppu_mode = 2;
   ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK + 1;
   ppu_pixel = ppu_buffer;
@@ -837,16 +838,29 @@ void GB::Write_IO(u8 addr, u8 val) {
 
   switch (addr) {
     case DIV: {
+      DPRINT(TIMER, "wrote div\n");
       u16 old_div = div();
       s.div_reset_tick = s.tick;
       s.io[DIV] = 0;
-      CheckDiv(old_div, 0, s.io[TAC], s.io[TAC]);
+      if (CheckDiv(old_div, 0, s.io[TAC], s.io[TAC])) {
+      DPRINT(TIMER, "++tima from div write\n");
+      }
       break;
     }
+    case TIMA:
+      DPRINT(TIMER, "wrote tima=%02x->%02x\n", old, byte);
+      break;
+    case TMA:
+      DPRINT(TIMER, "wrote tma=%02x->%02x\n", old, byte);
+      break;
     case TAC:
+      DPRINT(TIMER, "wrote tac=%02x->%02x enable=%d clock=%d\n", old, byte,
+            (byte & 4) >> 2, byte & 3);
       if (!(old & 4)) {
         u16 cur_div = div();
-        CheckDiv(cur_div, (byte & 4) ? 0 : cur_div, old, byte);
+        if (CheckDiv(cur_div, (byte & 4) ? 0 : cur_div, old, byte)) {
+          DPRINT(TIMER, "++tima from tac write\n");
+        }
       }
       break;
     case LCDC:
@@ -1643,25 +1657,42 @@ void GB::StepTimer() {
   u16 new_div = div() + 1;
   u8 tac = s.io[TAC];
   s.io[DIV] = new_div >> 8;
+
+  // TODO(binji): Does this happen even if the timer is subsequently disabled?
+  switch (s.tick - s.tima_overflow_tick) {
+    case 6:
+      DPRINT(TIMER, "check TIMA=%02x\n", s.io[TIMA]);
+      if (s.io[TIMA] == 0) {
+        s.io[IF] |= 4;
+        DPRINT(INTERRUPTS, "trigger TIMER IF 4\n");
+      }
+      break;
+    case 8:
+      DPRINT(TIMER, "reset TIMA %02x->%02x\n", s.io[TIMA], s.io[TMA]);
+      s.io[TIMA] = s.io[TMA];
+      break;
+  }
+
   if (!(tac & 4)) {
     return;
   }
   CheckDiv(new_div - 1, new_div, tac, tac);
 }
 
-void GB::CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac) {
+bool GB::CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac) {
   static const u16 tima_mask[] = {1 << 9, 1 << 3, 1 << 5, 1 << 7};
   bool old_bit = old_div & tima_mask[old_tac & 3];
   bool bit = new_div & tima_mask[new_tac & 3];
   if (old_bit != bit && !bit) {
+    DPRINT(TIMER, "++tima: %02x->%02x\n", s.io[TIMA], (s.io[TIMA] + 1) & 0xff);
     if (++s.io[TIMA] == 0) {
-      DPRINT(TIMER, "tima overflow, div:%04x->%04x tac:%d->%d\n", old_div,
+      DPRINT(TIMER, "tima overflow, div:%04x->%04x tac:%02x->%02x\n", old_div,
              new_div, old_tac, new_tac);
-      s.io[TIMA] = s.io[TMA];
-      s.io[IF] |= 4;
-      DPRINT(INTERRUPTS, "trigger TIMER IF 4\n");
+      s.tima_overflow_tick = s.tick;
     }
+    return true;
   }
+  return false;
 }
 
 void GB::StepDMA() {
