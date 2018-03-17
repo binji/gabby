@@ -26,8 +26,9 @@
 #define DEBUG_DMA 0
 #define DEBUG_INTERRUPTS 0
 #define DEBUG_MODE 0
-#define DEBUG_WINDOW 0
 #define DEBUG_SCROLL 0
+#define DEBUG_TIMER 0
+#define DEBUG_WINDOW 0
 #define SLOW 0
 
 #if SLOW
@@ -35,6 +36,8 @@
 #else
 #define SLOW_ASSERT(...) (void)0
 #endif
+
+#define DPRINT(x, ...) if (DEBUG_##x) { Print(__VA_ARGS__); }
 
 // Not sure about these yet.
 #define DMA_DELAY 8
@@ -464,11 +467,9 @@ void GB::StepCPU() {
       s.dispatch = s.ime && !!(s.io[IF] & s.io[IE] & 0x1f);
       s.ime = s.ime_enable ? true : s.ime;
       s.ime_enable = false;
-#if DEBUG_INTERRUPTS
       if (s.dispatch) {
-        Print("dispatch\n");
+        DPRINT(INTERRUPTS, "dispatch\n");
       }
-#endif
       break;
     case 6:
       if (s.dispatch) { DispatchInterrupt(); break; }
@@ -685,9 +686,7 @@ void GB::DispatchInterrupt() {
         if (intr & (1 << i)) {
           s.io[IF] &= ~(1 << i);
           s.wz = 0x40 + (i << 3);
-#if DEBUG_INTERRUPTS
-          Print("dispatch to interrupt %d @ %04x\n", 1 << i, s.wz);
-#endif
+          DPRINT(INTERRUPTS, "dispatch to interrupt %d @ %04x\n", 1 << i, s.wz);
           break;
         }
       }
@@ -847,11 +846,9 @@ void GB::Write_IO(u8 addr, u8 val) {
     case LCDC:
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
-#if DEBUG_MODE
         if (enabled) {
-          Print("lcd on\n");
+          DPRINT(MODE, "lcd on\n");
         }
-#endif
         s.ppu_line_start_tick = s.ppu_mode_start_tick =
             s.tick - LCD_START_TICK + 3;
         s.ppu_line_x = s.ppu_line_y = 0;
@@ -865,30 +862,24 @@ void GB::Write_IO(u8 addr, u8 val) {
     case DMA:
       s.dma_start_tick = s.tick + DMA_DELAY;
       s.dma_addr = val << 8;
-#if DEBUG_DMA
-      Print("dma triggered, active=%.f\n", cycles(s.dma_start_tick));
-#endif
+      DPRINT(DMA, "dma triggered, active=%.f\n", cycles(s.dma_start_tick));
       break;
 
-#if DEBUG_WINDOW
     case WX:
-      Print("wx: %d ly: %d\n", s.io[WX], s.io[LY]);
+      DPRINT(WINDOW, "wx: %d ly: %d\n", s.io[WX], s.io[LY]);
       break;
 
     case WY:
-      Print("wy: %d ly: %d\n", s.io[WY], s.io[LY]);
+      DPRINT(WINDOW, "wy: %d ly: %d\n", s.io[WY], s.io[LY]);
       break;
-#endif
 
-#if DEBUG_SCROLL
     case SCX:
-      Print("scx: %d ly: %d\n", s.io[SCX], s.io[LY]);
+      DPRINT(SCROLL, "scx: %d ly: %d\n", s.io[SCX], s.io[LY]);
       break;
 
     case SCY:
-      Print("scy: %d ly: %d\n", s.io[SCY], s.io[LY]);
+      DPRINT(SCROLL, "scy: %d ly: %d\n", s.io[SCY], s.io[LY]);
       break;
-#endif
   }
 }
 
@@ -1094,17 +1085,13 @@ void GB::dec_r(u8& r) {
 }
 
 void GB::di() {
-#if DEBUG_INTERRUPTS
-  Print("di\n", cycles());
-#endif
+  DPRINT(INTERRUPTS, "di\n");
   s.ime_enable = s.ime = false;
   s.op_cy = -2;
 }
 
 void GB::ei() {
-#if DEBUG_INTERRUPTS
-  Print("ei\n", cycles());
-#endif
+  DPRINT(INTERRUPTS, "ei\n");
   s.ime_enable = true;
   s.op_cy = -2;
 }
@@ -1662,15 +1649,11 @@ void GB::CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac) {
   bool bit = new_div & tima_mask[new_tac & 3];
   if (old_bit != bit && !bit) {
     if (++s.io[TIMA] == 0) {
-#if 0
-      Print("tima overflow, div:%04x->%04x tac:%d->%d\n", old_div, new_div,
-            old_tac, new_tac);
-#endif
+      DPRINT(TIMER, "tima overflow, div:%04x->%04x tac:%d->%d\n", old_div,
+             new_div, old_tac, new_tac);
       s.io[TIMA] = s.io[TMA];
       s.io[IF] |= 4;
-#if DEBUG_INTERRUPTS
-      Print("trigger TIMER IF 4\n");
-#endif
+      DPRINT(INTERRUPTS, "trigger TIMER IF 4\n");
     }
   }
 }
@@ -1680,9 +1663,7 @@ void GB::StepDMA() {
     s.dma_active = true;
     Tick delta = s.tick - s.dma_start_tick;
     if (delta >= DMA_TIME) {
-#if DEBUG_DMA
-      Print("dma finished\n");
-#endif
+      DPRINT(DMA, "dma finished\n");
       s.dma_start_tick = std::numeric_limits<Tick>::max();
       s.dma_active = false;
       return;
@@ -1846,29 +1827,23 @@ void GB::SetPPUMode(u8 mode) {
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
   s.ppu_mode_start_tick = s.tick + 2;
-#if DEBUG_MODE
-  Print("mode: %d\n", mode);
-#endif
+  DPRINT(MODE, "mode: %d\n", mode);
   u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
     case 1: if (stat & 0x10) { if_ |= 2; } if_ |= 1; break;
     case 2: if (stat & 0x20) { if_ |= 2; } break;
   }
-#if DEBUG_INTERRUPTS
   if (if_ != old) {
-    Print("trigger IF %d mode: %d\n", (if_ ^ old) & if_, mode);
+    DPRINT(INTERRUPTS, "trigger IF %d mode: %d\n", (if_ ^ old) & if_, mode);
   }
-#endif
 }
 
 void GB::CheckLyLyc() {
   s.io[STAT] = (s.io[STAT] & ~4) | (!!(s.io[LY] == s.io[LYC]) << 2);
   if ((s.io[STAT] & 0x44) == 0x44) {
     s.io[IF] |= 2;
-#if DEBUG_INTERRUPTS
-    Print("trigger STAT IF 2 ly=lyc=%d\n", s.io[LY]);
-#endif
+    DPRINT(INTERRUPTS, "trigger STAT IF 2 ly=lyc=%d\n", s.io[LY]);
   }
 }
 
