@@ -2061,9 +2061,9 @@ void GB::PrintInstruction(u16 addr) {
 
 void GB::Trace() {
   if (s.op_cy == 0 && (s.tick & 1) == 0) {
-    printf("A:%02X F:%c%c%c%c BC:%04X DE:%04x HL:%04x SP:%04x PC:%04x", s.a,
-           (s.f & 0x80) ? 'Z' : '-', (s.f & 0x40) ? 'N' : '-',
-           (s.f & 0x20) ? 'H' : '-', (s.f & 0x10) ? 'C' : '-', s.bc, s.de, s.hl,
+    printf("a:%02x f:%c%c%c%c bc:%04x de:%04x hl:%04x sp:%04x pc:%04x", s.a,
+           (s.f & 0x80) ? 'z' : '-', (s.f & 0x40) ? 'n' : '-',
+           (s.f & 0x20) ? 'h' : '-', (s.f & 0x10) ? 'c' : '-', s.bc, s.de, s.hl,
            s.sp, s.pc);
     printf(" (cy: %.f)", cycles());
     printf(" ppu:%c%u", s.io[LCDC] & 0x80 ? '+' : '-', s.io[STAT] & 3);
