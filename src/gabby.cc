@@ -39,6 +39,12 @@
 
 #define DPRINT(x, ...) if (DEBUG_##x) { Print(__VA_ARGS__); }
 
+#if __GNUC__ || __clang__
+#define PRINTF_FORMAT(fmt, fst) __attribute__((format(printf, (fmt), (fst))))
+#else
+#define PRINTF_FORMAT
+#endif
+
 // Not sure about these yet.
 #define DMA_DELAY 8
 #define DMA_TIME 1280
@@ -194,7 +200,7 @@ struct GB {
   static Cycle cycles(Tick tick) { return tick / 2.0; }
   u16 div() const { return (s.tick - s.div_reset_tick) >> 1; }
 
-  void Print(const char* fmt, ...) const;
+  void PRINTF_FORMAT(2, 3) Print(const char* fmt, ...) const;
   int Disassemble(u16 addr, char* buffer, size_t size);
   void PrintInstruction(u16 addr);
   void Trace();
