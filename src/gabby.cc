@@ -48,7 +48,8 @@
 // Not sure about these yet.
 #define DMA_DELAY 8
 #define DMA_TIME 1280
-#define LCD_START_TICK 8
+#define LINE_START_TICK 7
+#define MODE_START_TICK 3
 #define TIMER_IF_DELAY 6
 #define TIMER_RESET_DELAY 10
 #define TIMER_NO_OVERFLOW (-11)
@@ -435,7 +436,8 @@ State::State(GB& gb) {
   div_reset_tick = -0xabcc * 2;
   tima_overflow_tick = TIMER_NO_OVERFLOW;
   ppu_mode = 2;
-  ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK + 1;
+  ppu_line_start_tick = -LINE_START_TICK;
+  ppu_mode_start_tick = -MODE_START_TICK;
   ppu_pixel = ppu_buffer;
   dma_start_tick = MaxTick;
 }
@@ -886,8 +888,8 @@ void GB::Write_IO(u8 addr, u8 val) {
         if (enabled) {
           DPRINT(MODE, "lcd on\n");
         }
-        s.ppu_line_start_tick = s.ppu_mode_start_tick =
-            s.tick - LCD_START_TICK + 3;
+        s.ppu_line_start_tick = s.tick - LINE_START_TICK;
+        s.ppu_mode_start_tick = s.tick - MODE_START_TICK;
         s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = enabled ? 2 : 0;
@@ -1749,7 +1751,7 @@ void GB::StepPPU() {
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 902) {
+      if (line_tick == 908) {
         if (s.ppu_line_y == 153) {
           stat &= ~3;
         } else {
@@ -2196,6 +2198,7 @@ int main(int argc, char** argv) {
     ParseArguments(argc, argv);
     GB gb(ReadFile(s_filename), Variant::Guess);
 
+#if 0
     Clock run_clocks = s_frames * 70224u;
     f64 start_time = GetTime();
     if (s_trace) {
@@ -2216,6 +2219,29 @@ int main(int argc, char** argv) {
     if (s_ppm_filename) {
       WriteFramePPM(gb, s_ppm_filename);
     }
+#else
+    Tick last = 0;
+    u8 ly = 255;
+    u8 mode = 255;
+    Clock run_clocks = 80000;
+    for (Clock i = 0; i < run_clocks; ++i) {
+      Tick tick = gb.s.tick;
+      u8 new_ly = gb.s.io[LY];
+      u8 new_mode = gb.s.io[STAT] & 3;
+
+      bool changed = new_ly != ly || new_mode != mode;
+      ly = new_ly;
+      mode = new_mode;
+      if (changed) {
+        printf("%7ld: (+%3ld) ly:%3d mode:%d\n", tick, tick - last, ly, mode);
+        last = tick;
+      }
+
+      ++gb.s.tick;
+      gb.StepPPU();
+      ++gb.s.tick;
+    }
+#endif
 
     return 0;
   } catch (const Error& e) {
