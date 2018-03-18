@@ -49,6 +49,9 @@
 #define DMA_DELAY 8
 #define DMA_TIME 1280
 #define LCD_START_TICK 8
+#define TIMER_IF_DELAY 6
+#define TIMER_RESET_DELAY 10
+#define TIMER_NO_OVERFLOW (-11)
 
 using s8 = int8_t;
 using s16 = int16_t;
@@ -426,7 +429,7 @@ State::State(GB& gb) {
 
   std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
   div_reset_tick = -0xabcc * 2;
-  tima_overflow_tick = -20;  // Doesn't matter as long as < 18.
+  tima_overflow_tick = TIMER_NO_OVERFLOW;
   ppu_mode = 2;
   ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK + 1;
   ppu_pixel = ppu_buffer;
@@ -457,8 +460,8 @@ GB::GB(Buffer&& rom_, Variant variant)
 #define LD_R_OPS(code, r) REG_OPS_N(code, ld_r, r)
 
 void GB::Step() {
-  StepCPU();
   StepTimer();
+  StepCPU();
   StepDMA();
   ++s.tick;
   StepPPU();
@@ -849,9 +852,19 @@ void GB::Write_IO(u8 addr, u8 val) {
     }
     case TIMA:
       DPRINT(TIMER, "wrote tima=%02x->%02x\n", old, byte);
+      // TODO(binji): gotta be a simpler solution here...
+      if (s.tick - s.tima_overflow_tick == TIMER_RESET_DELAY) {
+        DPRINT(TIMER, "  overriden by TIMA reset =>%02x\n", old);
+        byte = old;
+      }
       break;
     case TMA:
       DPRINT(TIMER, "wrote tma=%02x->%02x\n", old, byte);
+      // TODO(binji): gotta be a simpler solution here...
+      if (s.tick - s.tima_overflow_tick == TIMER_RESET_DELAY) {
+        DPRINT(TIMER, "  copied to TIMA\n");
+        s.io[TIMA] = byte;
+      }
       break;
     case TAC:
       DPRINT(TIMER, "wrote tac=%02x->%02x enable=%d clock=%d\n", old, byte,
@@ -1658,24 +1671,27 @@ void GB::StepTimer() {
   u8 tac = s.io[TAC];
   s.io[DIV] = new_div >> 8;
 
+  if (!(tac & 4)) {
+    return;
+  }
+
   // TODO(binji): Does this happen even if the timer is subsequently disabled?
   switch (s.tick - s.tima_overflow_tick) {
-    case 6:
+    case TIMER_IF_DELAY:
       DPRINT(TIMER, "check TIMA=%02x\n", s.io[TIMA]);
       if (s.io[TIMA] == 0) {
         s.io[IF] |= 4;
         DPRINT(INTERRUPTS, "trigger TIMER IF 4\n");
+      } else {
+        s.tima_overflow_tick = TIMER_NO_OVERFLOW;
       }
       break;
-    case 8:
-      DPRINT(TIMER, "reset TIMA %02x->%02x\n", s.io[TIMA], s.io[TMA]);
+    case TIMER_RESET_DELAY:
       s.io[TIMA] = s.io[TMA];
+      DPRINT(TIMER, "reset TIMA %02x->%02x\n", s.io[TIMA], s.io[TMA]);
       break;
   }
 
-  if (!(tac & 4)) {
-    return;
-  }
   CheckDiv(new_div - 1, new_div, tac, tac);
 }
 
