@@ -32,7 +32,7 @@
 #define SLOW 0
 
 #if SLOW
-#define SLOW_ASSERT(...) assert
+#define SLOW_ASSERT(...) assert(__VA_ARGS__)
 #else
 #define SLOW_ASSERT(...) (void)0
 #endif
@@ -163,7 +163,7 @@ struct State {
 
   u8 op, cb_op;
 
-  Tick ppu_line_start_tick, ppu_mode_start_tick;
+  Tick ppu_line_start_tick, ppu_mode_start_tick, ppu_lcd_on_tick;
   u16 ppu_map_addr, ppu_tile_addr;
   u8 ppu_mode, ppu_stall;
   u8 ppu_line_x, ppu_line_y, ppu_draw_y;
@@ -436,6 +436,7 @@ State::State(GB& gb) {
   div_reset_tick = -0xabcc * 2;
   tima_overflow_tick = TIMER_NO_OVERFLOW;
   ppu_mode = 2;
+  ppu_lcd_on_tick = 0;
   ppu_line_start_tick = -LINE_START_TICK;
   ppu_mode_start_tick = -MODE_START_TICK;
   ppu_pixel = ppu_buffer;
@@ -468,6 +469,7 @@ GB::GB(Buffer&& rom_, Variant variant)
 void GB::Step() {
   StepTimer();
   StepCPU();
+  StepPPU();
   StepDMA();
   ++s.tick;
   StepPPU();
@@ -886,10 +888,11 @@ void GB::Write_IO(u8 addr, u8 val) {
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
         if (enabled) {
-          DPRINT(MODE, "lcd on\n");
+          s.ppu_lcd_on_tick = s.tick;
+          DPRINT(MODE, "(%lu) lcd on\n", s.tick - s.ppu_lcd_on_tick);
         }
-        s.ppu_line_start_tick = s.tick - LINE_START_TICK;
-        s.ppu_mode_start_tick = s.tick - MODE_START_TICK;
+        s.ppu_line_start_tick = s.tick - LINE_START_TICK + 2;
+        s.ppu_mode_start_tick = s.tick - MODE_START_TICK + 2;
         s.ppu_line_x = s.ppu_line_y = 0;
         s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = enabled ? 2 : 0;
@@ -1740,37 +1743,33 @@ void GB::StepDMA() {
 void GB::StepPPU() {
   if (!(s.io[LCDC] & 0x80)) { return; }
 
-  SLOW_ASSERT(falling(s.tick));
-  SLOW_ASSERT(falling(s.ppu_line_start_tick));
-  SLOW_ASSERT(falling(s.ppu_mode_start_tick));
-
   u8& ly = s.io[LY];
-  u8& stat = s.io[STAT];
 
   Tick line_tick = s.tick - s.ppu_line_start_tick;
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 908) {
-        if (s.ppu_line_y == 153) {
-          stat &= ~3;
-        } else {
-          ++ly;
-          CheckLyLyc();
+      if (line_tick == 0) {
+        if (s.ppu_line_y == 144) {
+          SetPPUMode(1);
+        } else if (s.ppu_line_y == 0) {
+          s.io[STAT] = (s.io[STAT] & ~3) | 2;
         }
+      } else if (line_tick == 8 && s.ppu_line_y == 153) {
+        ly = 0;
+        CheckLyLyc();
+      } else if (line_tick == 908 && s.ppu_line_y != 153) {
+        ++ly;
+        CheckLyLyc();
       } else if (line_tick == 910) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
           SetPPUMode(2);
-        } else if (s.ppu_line_y == 144) {
-          SetPPUMode(1);
-        } else if (s.ppu_line_y == 153) {
-          ly = 0;
-          CheckLyLyc();
         } else if (s.ppu_line_y == 154) {
           s.ppu_pixel = s.ppu_buffer;
-          s.ppu_line_y = ly = 0;
-          SetPPUMode(2);
+          s.ppu_line_y = 0;
+          SetPPUMode(0);
+          s.ppu_mode = 2;
         }
         s.ppu_line_start_tick = s.tick + 2;
       }
@@ -1857,25 +1856,31 @@ void GB::StepPPU_Mode3() {
       break;
   }
 
-  if (s.ppu_stall == 0) {
-    u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
-    *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
+  if (falling(s.tick)) {
+    if (s.ppu_stall == 0) {
+      u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
+      *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
+      ++s.ppu_line_x;
+    } else {
+      --s.ppu_stall;
+    }
 
-    if (++s.ppu_line_x == 160) {
-      SetPPUMode(0);
+    s.ppu_tile[0] <<= 1;
+    s.ppu_tile[1] <<= 1;
+
+    if (!s.ppu_window && (s.io[LCDC] & 0x20) && s.ppu_line_y >= s.io[WY] &&
+        mode_tick == (s.io[WX] + 6) * 2) {
+      s.ppu_stall = 6;
+      s.ppu_mode_start_tick = s.tick + 2;
+      s.ppu_window = true;
     }
   } else {
-    --s.ppu_stall;
-  }
-
-  s.ppu_tile[0] <<= 1;
-  s.ppu_tile[1] <<= 1;
-
-  if (!s.ppu_window && (s.io[LCDC] & 0x20) && s.ppu_line_y >= s.io[WY] &&
-      mode_tick == (s.io[WX] + 6) * 2) {
-    s.ppu_stall = 6;
-    s.ppu_mode_start_tick = s.tick + 2;
-    s.ppu_window = true;
+    // TODO handle last pixel
+    if (s.ppu_line_x == 159) {
+      ++s.ppu_pixel;
+      ++s.ppu_line_x;
+      SetPPUMode(0);
+    }
   }
 }
 
@@ -1886,7 +1891,7 @@ void GB::SetPPUMode(u8 mode) {
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
   s.ppu_mode_start_tick = s.tick + 2;
-  DPRINT(MODE, "mode: %d\n", mode);
+  DPRINT(MODE, "(%lu) mode: %d\n", s.tick - s.ppu_lcd_on_tick, mode);
   u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
@@ -2198,7 +2203,7 @@ int main(int argc, char** argv) {
     ParseArguments(argc, argv);
     GB gb(ReadFile(s_filename), Variant::Guess);
 
-#if 0
+#if 1
     Clock run_clocks = s_frames * 70224u;
     f64 start_time = GetTime();
     if (s_trace) {
@@ -2223,8 +2228,8 @@ int main(int argc, char** argv) {
     Tick last = 0;
     u8 ly = 255;
     u8 mode = 255;
-    Clock run_clocks = 80000;
-    for (Clock i = 0; i < run_clocks; ++i) {
+
+    auto&& check = [&]() {
       Tick tick = gb.s.tick;
       u8 new_ly = gb.s.io[LY];
       u8 new_mode = gb.s.io[STAT] & 3;
@@ -2236,8 +2241,11 @@ int main(int argc, char** argv) {
         printf("%7ld: (+%3ld) ly:%3d mode:%d\n", tick, tick - last, ly, mode);
         last = tick;
       }
+    };
 
-      ++gb.s.tick;
+    Tick run_ticks = 73000 * 2;
+    for (Tick i = 0; i < run_ticks; ++i) {
+      check();
       gb.StepPPU();
       ++gb.s.tick;
     }
