@@ -29,13 +29,6 @@
 #define DEBUG_SCROLL 0
 #define DEBUG_TIMER 0
 #define DEBUG_WINDOW 0
-#define SLOW 0
-
-#if SLOW
-#define SLOW_ASSERT(...) assert(__VA_ARGS__)
-#else
-#define SLOW_ASSERT(...) (void)0
-#endif
 
 #define DPRINT(x, ...) if (DEBUG_##x) { Print(__VA_ARGS__); }
 
@@ -477,7 +470,7 @@ void GB::Step() {
 }
 
 void GB::StepCPU() {
-  SLOW_ASSERT(rising(s.tick));
+  assert(rising(s.tick));
   switch (s.op_tick) {
     case 0: case 2:
       break;
@@ -1789,7 +1782,7 @@ void GB::StepPPU() {
 void GB::StepPPU_Mode2() {
   // TODO: sprite stuff
   Tick mode_tick = s.tick - s.ppu_mode_start_tick;
-  SLOW_ASSERT(mode_tick < 160);
+  assert(mode_tick < 160);
   if (mode_tick == 159) {
     SetPPUMode(3);
     s.ppu_window = false;
@@ -1800,7 +1793,7 @@ void GB::StepPPU_Mode2() {
 
 void GB::StepPPU_Mode3() {
   Tick mode_tick = s.tick - s.ppu_mode_start_tick;
-  SLOW_ASSERT(mode_tick < 362);
+  assert(mode_tick < 362);
   switch (mode_tick) {
     case 0: {
       if (s.ppu_window) {
