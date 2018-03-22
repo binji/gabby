@@ -888,13 +888,15 @@ void GB::Write_IO(u8 addr, u8 val) {
       if ((old ^ byte) & 0x80) {
         bool enabled = !!(byte & 0x80);
         if (enabled) {
-          s.ppu_lcd_on_tick = s.tick;
-          DPRINT(MODE, "(%lu) lcd on\n", s.tick - s.ppu_lcd_on_tick);
+          s.ppu_lcd_on_tick = s.tick + 1;
+          s.ppu_line_start_tick = s.tick - LINE_START_TICK;
+          s.ppu_mode_start_tick = s.tick - MODE_START_TICK;
+          s.ppu_line_x = s.ppu_line_y = 0;
+          s.ppu_pixel = s.ppu_buffer;
+          DPRINT(MODE, "(%ld) lcd on\n", s.tick - s.ppu_lcd_on_tick);
+        } else {
+          s.ppu_lcd_on_tick = MaxTick;
         }
-        s.ppu_line_start_tick = s.tick - LINE_START_TICK + 2;
-        s.ppu_mode_start_tick = s.tick - MODE_START_TICK + 2;
-        s.ppu_line_x = s.ppu_line_y = 0;
-        s.ppu_pixel = s.ppu_buffer;
         s.ppu_mode = enabled ? 2 : 0;
         s.io[LY] = 0;
         s.io[STAT] &= ~7;
@@ -1741,7 +1743,7 @@ void GB::StepDMA() {
 }
 
 void GB::StepPPU() {
-  if (!(s.io[LCDC] & 0x80)) { return; }
+  if (s.tick < s.ppu_lcd_on_tick) { return; }
 
   u8& ly = s.io[LY];
 
@@ -1752,8 +1754,6 @@ void GB::StepPPU() {
       if (line_tick == 0) {
         if (s.ppu_line_y == 144) {
           SetPPUMode(1);
-        } else if (s.ppu_line_y == 0) {
-          s.io[STAT] = (s.io[STAT] & ~3) | 2;
         }
       } else if (line_tick == 8 && s.ppu_line_y == 153) {
         ly = 0;
@@ -1775,7 +1775,13 @@ void GB::StepPPU() {
       }
       break;
 
-    case 2: StepPPU_Mode2(); break;
+    case 2:
+      if (line_tick == 0 && s.ppu_line_y == 0) {
+        s.io[STAT] = (s.io[STAT] & ~3) | 2;
+      }
+      StepPPU_Mode2();
+      break;
+
     case 3: StepPPU_Mode3(); break;
   }
 }
@@ -2201,9 +2207,10 @@ f64 GetTime() {
 int main(int argc, char** argv) {
   try {
     ParseArguments(argc, argv);
-    GB gb(ReadFile(s_filename), Variant::Guess);
 
 #if 1
+    GB gb(ReadFile(s_filename), Variant::Guess);
+
     Clock run_clocks = s_frames * 70224u;
     f64 start_time = GetTime();
     if (s_trace) {
@@ -2225,29 +2232,47 @@ int main(int argc, char** argv) {
       WriteFramePPM(gb, s_ppm_filename);
     }
 #else
-    Tick last = 0;
-    u8 ly = 255;
-    u8 mode = 255;
+    GB gb1(ReadFile(s_filename), Variant::Guess);
+    GB gb2(ReadFile(s_filename), Variant::Guess);
 
-    auto&& check = [&]() {
-      Tick tick = gb.s.tick;
+    gb2.s.tick += 6;
+    gb2.Write_IO(LCDC, 0);
+    gb2.Write_IO(LCDC, 0x80);
+
+    struct Last {
+      Tick base = 0;
+      Tick tick = 0;
+      u8 ly = 255;
+      u8 mode = 255;
+    };
+    Last last1, last2;
+
+    last2.base = last2.tick = gb2.s.tick;
+
+    auto&& check = [](int index, GB& gb, Last& last) {
+      Tick tick = gb.s.tick - last.base;
       u8 new_ly = gb.s.io[LY];
       u8 new_mode = gb.s.io[STAT] & 3;
 
-      bool changed = new_ly != ly || new_mode != mode;
-      ly = new_ly;
-      mode = new_mode;
+      bool changed = new_ly != last.ly || new_mode != last.mode;
+      last.ly = new_ly;
+      last.mode = new_mode;
       if (changed) {
-        printf("%7ld: (+%3ld) ly:%3d mode:%d\n", tick, tick - last, ly, mode);
-        last = tick;
+        printf("%d: %7ld: (+%3ld) ly:%3d mode:%d\n", index, tick,
+               tick - last.tick, last.ly, last.mode);
+        last.tick = tick;
       }
     };
 
-    Tick run_ticks = 73000 * 2;
+    Tick run_ticks = 72500 * 2;
+    // Tick run_ticks = 1000 * 2;
     for (Tick i = 0; i < run_ticks; ++i) {
-      check();
-      gb.StepPPU();
-      ++gb.s.tick;
+      check(1, gb1, last1);
+      check(2, gb2, last2);
+      gb1.StepPPU();
+      gb2.StepPPU();
+      ++gb1.s.tick;
+      ++gb2.s.tick;
     }
 #endif
 
