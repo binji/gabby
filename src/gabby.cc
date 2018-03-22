@@ -48,8 +48,8 @@
 // Not sure about these yet.
 #define DMA_DELAY 8
 #define DMA_TIME 1280
-#define LINE_START_TICK 7
-#define MODE_START_TICK 3
+#define LINE_START_TICK 8
+#define MODE_START_TICK 4
 #define TIMER_IF_DELAY 6
 #define TIMER_RESET_DELAY 10
 #define TIMER_NO_OVERFLOW (-11)
@@ -889,8 +889,8 @@ void GB::Write_IO(u8 addr, u8 val) {
         bool enabled = !!(byte & 0x80);
         if (enabled) {
           s.ppu_lcd_on_tick = s.tick + 1;
-          s.ppu_line_start_tick = s.tick - LINE_START_TICK;
-          s.ppu_mode_start_tick = s.tick - MODE_START_TICK;
+          s.ppu_line_start_tick = s.ppu_lcd_on_tick - LINE_START_TICK;
+          s.ppu_mode_start_tick = s.ppu_lcd_on_tick - MODE_START_TICK;
           s.ppu_line_x = s.ppu_line_y = 0;
           s.ppu_pixel = s.ppu_buffer;
           DPRINT(MODE, "(%ld) lcd on\n", s.tick - s.ppu_lcd_on_tick);
@@ -1751,17 +1751,17 @@ void GB::StepPPU() {
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 0) {
+      if (line_tick == 1) {
         if (s.ppu_line_y == 144) {
           SetPPUMode(1);
         }
-      } else if (line_tick == 8 && s.ppu_line_y == 153) {
+      } else if (line_tick == 9 && s.ppu_line_y == 153) {
         ly = 0;
         CheckLyLyc();
-      } else if (line_tick == 908 && s.ppu_line_y != 153) {
+      } else if (line_tick == 909 && s.ppu_line_y != 153) {
         ++ly;
         CheckLyLyc();
-      } else if (line_tick == 910) {
+      } else if (line_tick == 911) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
           SetPPUMode(2);
@@ -1771,12 +1771,12 @@ void GB::StepPPU() {
           SetPPUMode(0);
           s.ppu_mode = 2;
         }
-        s.ppu_line_start_tick = s.tick + 2;
+        s.ppu_line_start_tick = s.tick + 1;
       }
       break;
 
     case 2:
-      if (line_tick == 0 && s.ppu_line_y == 0) {
+      if (line_tick == 1 && s.ppu_line_y == 0) {
         s.io[STAT] = (s.io[STAT] & ~3) | 2;
       }
       StepPPU_Mode2();
@@ -1790,7 +1790,7 @@ void GB::StepPPU_Mode2() {
   // TODO: sprite stuff
   Tick mode_tick = s.tick - s.ppu_mode_start_tick;
   SLOW_ASSERT(mode_tick < 160);
-  if (mode_tick == 158) {
+  if (mode_tick == 159) {
     SetPPUMode(3);
     s.ppu_window = false;
     s.ppu_line_x = 0;
@@ -1866,7 +1866,9 @@ void GB::StepPPU_Mode3() {
     if (s.ppu_stall == 0) {
       u8 pal_index = ((s.ppu_tile[1] >> 6) & 2) | (s.ppu_tile[0] >> 7);
       *s.ppu_pixel++ = (s.io[BGP] >> (pal_index * 2)) & 3;
-      ++s.ppu_line_x;
+      if (++s.ppu_line_x == 160) {
+        SetPPUMode(0);
+      }
     } else {
       --s.ppu_stall;
     }
@@ -1880,24 +1882,17 @@ void GB::StepPPU_Mode3() {
       s.ppu_mode_start_tick = s.tick + 2;
       s.ppu_window = true;
     }
-  } else {
-    // TODO handle last pixel
-    if (s.ppu_line_x == 159) {
-      ++s.ppu_pixel;
-      ++s.ppu_line_x;
-      SetPPUMode(0);
-    }
   }
 }
 
 void GB::SetPPUMode(u8 mode) {
-  SLOW_ASSERT(falling(s.tick));
   u8& stat = s.io[STAT];
   u8& if_ = s.io[IF];
   stat = (stat & ~3) | mode;
   s.ppu_mode = mode;
-  s.ppu_mode_start_tick = s.tick + 2;
-  DPRINT(MODE, "(%lu) mode: %d\n", s.tick - s.ppu_lcd_on_tick, mode);
+  s.ppu_mode_start_tick = s.tick + 1;
+  DPRINT(MODE, "(%lu) mode: %d\n", s.ppu_mode_start_tick - s.ppu_lcd_on_tick,
+         mode);
   u8 old = if_;
   switch (mode) {
     case 0: if (stat & 0x08) { if_ |= 2; } break;
@@ -2208,7 +2203,6 @@ int main(int argc, char** argv) {
   try {
     ParseArguments(argc, argv);
 
-#if 1
     GB gb(ReadFile(s_filename), Variant::Guess);
 
     Clock run_clocks = s_frames * 70224u;
@@ -2231,50 +2225,6 @@ int main(int argc, char** argv) {
     if (s_ppm_filename) {
       WriteFramePPM(gb, s_ppm_filename);
     }
-#else
-    GB gb1(ReadFile(s_filename), Variant::Guess);
-    GB gb2(ReadFile(s_filename), Variant::Guess);
-
-    gb2.s.tick += 6;
-    gb2.Write_IO(LCDC, 0);
-    gb2.Write_IO(LCDC, 0x80);
-
-    struct Last {
-      Tick base = 0;
-      Tick tick = 0;
-      u8 ly = 255;
-      u8 mode = 255;
-    };
-    Last last1, last2;
-
-    last2.base = last2.tick = gb2.s.tick;
-
-    auto&& check = [](int index, GB& gb, Last& last) {
-      Tick tick = gb.s.tick - last.base;
-      u8 new_ly = gb.s.io[LY];
-      u8 new_mode = gb.s.io[STAT] & 3;
-
-      bool changed = new_ly != last.ly || new_mode != last.mode;
-      last.ly = new_ly;
-      last.mode = new_mode;
-      if (changed) {
-        printf("%d: %7ld: (+%3ld) ly:%3d mode:%d\n", index, tick,
-               tick - last.tick, last.ly, last.mode);
-        last.tick = tick;
-      }
-    };
-
-    Tick run_ticks = 72500 * 2;
-    // Tick run_ticks = 1000 * 2;
-    for (Tick i = 0; i < run_ticks; ++i) {
-      check(1, gb1, last1);
-      check(2, gb2, last2);
-      gb1.StepPPU();
-      gb2.StepPPU();
-      ++gb1.s.tick;
-      ++gb2.s.tick;
-    }
-#endif
 
     return 0;
   } catch (const Error& e) {
