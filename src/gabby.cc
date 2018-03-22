@@ -70,6 +70,7 @@ using Error = std::runtime_error;
 using Buffer = std::vector<u8>;
 
 constexpr Clock CpuClocksPerSec = 0x400000;
+constexpr Tick MaxTick = std::numeric_limits<Tick>::max();
 
 enum {
   JOYP = 0x00,
@@ -436,7 +437,7 @@ State::State(GB& gb) {
   ppu_mode = 2;
   ppu_line_start_tick = ppu_mode_start_tick = -LCD_START_TICK + 1;
   ppu_pixel = ppu_buffer;
-  dma_start_tick = std::numeric_limits<Tick>::max();
+  dma_start_tick = MaxTick;
 }
 
 GB::GB(Buffer&& rom_, Variant variant)
@@ -1720,7 +1721,7 @@ void GB::StepDMA() {
     Tick delta = s.tick - s.dma_start_tick;
     if (delta >= DMA_TIME) {
       DPRINT(DMA, "dma finished\n");
-      s.dma_start_tick = std::numeric_limits<Tick>::max();
+      s.dma_start_tick = MaxTick;
       s.dma_active = false;
       return;
     }
