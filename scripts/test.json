@@ -117,7 +117,7 @@
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_new_frame-GS.gb", 27, "!158795ba83ab5cbf9b1d1c43830742a6679d87f8"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/stat_write_if-GS.gb", 300, "!74a5dee62700167c7211b37c3c340d9af3605ead"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/vblank_if_timing.gb", 19, "dbd9b17120938b29f38da7d6b0004afff70b0419"],
-  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/timer/timer_if.gb", 12, "!66d4956fd386c274532d8f146a3094265f4c86f6"],
+  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/timer/timer_if.gb", 12, "2ff8a38f7421feb1e86de059ed47fb908501ed8a"],
 
   ["", "test/oam_count_v5.gb", 13, "!b3fb2ce748562b72e14f231fafd2e6fc19597080"]
 ]

@@ -1134,7 +1134,7 @@ void GB::ei() {
 }
 
 void GB::halt() {
-  if (s.op_tick == 6 || (s.op_tick & 7) == 4) {
+  if (s.op_tick == 6 || (s.op_tick & 7) == 0) {
     if (s.io[IF] & s.io[IE] & 0x1f) {
       s.dispatch = s.ime;
       if (!s.ime && s.op_tick == 6) { s.halt_bug = true; }
@@ -1744,7 +1744,7 @@ void GB::StepPPU() {
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 1) {
+      if (line_tick == 4) {
         if (s.ppu_line_y == 144) {
           SetPPUMode(1);
         }
@@ -2018,7 +2018,7 @@ static const char* s_cb_opcode_mnemonic[256] = {
 void GB::Print(const char* fmt, ...) const {
   va_list args;
   va_start(args, fmt);
-  printf("%.1f: ", clocks());
+  printf("%lu (%.1f): ", s.tick, clocks());
   vprintf(fmt, args);
   va_end(args);
 }
