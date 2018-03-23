@@ -190,8 +190,8 @@ struct GB {
   bool CheckDiv(u16 old_div, u16 new_div, u8 old_tac, u8 new_tac);
   void StepDMA();
   void StepPPU();
-  void StepPPU_Mode2();
-  void StepPPU_Mode3();
+  void StepPPU_Mode2(Tick mode_tick);
+  void StepPPU_Mode3(Tick mode_tick);
   void SetPPUMode(u8 mode);
   void CheckLyLyc();
 
@@ -200,6 +200,8 @@ struct GB {
   FClock clocks() const { return s.tick / 2.0; }
   static FClock clocks(Tick tick) { return tick / 2.0; }
   u16 div() const { return (s.tick - s.div_reset_tick) >> 1; }
+
+  void set_stat_mode(u8 mode) { s.io[STAT] = (s.io[STAT] & ~3) | mode; }
 
   void PRINTF_FORMAT(2, 3) Print(const char* fmt, ...) const;
   int Disassemble(u16 addr, char* buffer, size_t size);
@@ -1740,14 +1742,13 @@ void GB::StepPPU() {
 
   u8& ly = s.io[LY];
 
+  Tick mode_tick = s.tick - s.ppu_mode_start_tick;
   Tick line_tick = s.tick - s.ppu_line_start_tick;
   switch (s.ppu_mode) {
     case 0:
     case 1:
-      if (line_tick == 4) {
-        if (s.ppu_line_y == 144) {
-          SetPPUMode(1);
-        }
+      if (line_tick == 4 && s.ppu_line_y == 144) {
+        SetPPUMode(1);
       } else if (line_tick == 9 && s.ppu_line_y == 153) {
         ly = 0;
         CheckLyLyc();
@@ -1761,8 +1762,8 @@ void GB::StepPPU() {
         } else if (s.ppu_line_y == 154) {
           s.ppu_pixel = s.ppu_buffer;
           s.ppu_line_y = 0;
-          SetPPUMode(0);
-          s.ppu_mode = 2;
+          SetPPUMode(2);
+          set_stat_mode(0);
         }
         s.ppu_line_start_tick = s.tick + 1;
       }
@@ -1770,18 +1771,17 @@ void GB::StepPPU() {
 
     case 2:
       if (line_tick == 1 && s.ppu_line_y == 0) {
-        s.io[STAT] = (s.io[STAT] & ~3) | 2;
+        set_stat_mode(2);
       }
-      StepPPU_Mode2();
+      StepPPU_Mode2(mode_tick);
       break;
 
-    case 3: StepPPU_Mode3(); break;
+    case 3: StepPPU_Mode3(mode_tick); break;
   }
 }
 
-void GB::StepPPU_Mode2() {
+void GB::StepPPU_Mode2(Tick mode_tick) {
   // TODO: sprite stuff
-  Tick mode_tick = s.tick - s.ppu_mode_start_tick;
   assert(mode_tick < 160);
   if (mode_tick == 159) {
     SetPPUMode(3);
@@ -1791,8 +1791,7 @@ void GB::StepPPU_Mode2() {
   }
 }
 
-void GB::StepPPU_Mode3() {
-  Tick mode_tick = s.tick - s.ppu_mode_start_tick;
+void GB::StepPPU_Mode3(Tick mode_tick) {
   assert(mode_tick < 362);
   switch (mode_tick) {
     case 0: {
@@ -1881,7 +1880,7 @@ void GB::StepPPU_Mode3() {
 void GB::SetPPUMode(u8 mode) {
   u8& stat = s.io[STAT];
   u8& if_ = s.io[IF];
-  stat = (stat & ~3) | mode;
+  set_stat_mode(mode);
   s.ppu_mode = mode;
   s.ppu_mode_start_tick = s.tick + 1;
   DPRINT(MODE, "(%lu) mode: %d\n", s.ppu_mode_start_tick - s.ppu_lcd_on_tick,
