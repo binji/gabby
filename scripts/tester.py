@@ -49,7 +49,7 @@ def RunTest(test, options):
     ok = actual == expected
     if ok:
       if expect_fail and options.verbose > 0:
-        message = FAIL + test.rom
+        message = FAIL + '%s %d' % (test.rom, test.frames)
       elif options.verbose > 1:
         message = OK + test.rom
     else:
