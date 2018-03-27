@@ -897,8 +897,7 @@ void GB::Write_IO(u8 addr, u8 val) {
         }
         s.ppu_mode = enabled ? 2 : 0;
         s.io[LY] = 0;
-        s.io[STAT] &= ~7;
-        CheckLyLyc();
+        s.io[STAT] &= ~3;
       }
       break;
     case DMA:
@@ -1732,6 +1731,11 @@ void GB::StepPPU() {
 
   Tick mode_tick = s.tick - s.ppu_mode_start_tick;
   Tick line_tick = s.tick - s.ppu_line_start_tick;
+
+  if ((line_tick & 7) == 0) {
+    CheckLyLyc();
+  }
+
   switch (s.ppu_mode) {
     case 0:
     case 1:
@@ -1739,10 +1743,8 @@ void GB::StepPPU() {
         SetPPUMode(1);
       } else if (line_tick == 9 && s.ppu_line_y == 153) {
         ly = 0;
-        CheckLyLyc();
       } else if (line_tick == 909 && s.ppu_line_y != 153) {
         ++ly;
-        CheckLyLyc();
       } else if (line_tick == 911) {
         ++s.ppu_line_y;
         if (s.ppu_line_y < 144) {
@@ -1885,8 +1887,10 @@ void GB::SetPPUMode(u8 mode) {
 }
 
 void GB::CheckLyLyc() {
-  s.io[STAT] = (s.io[STAT] & ~4) | (!!(s.io[LY] == s.io[LYC]) << 2);
-  if ((s.io[STAT] & 0x44) == 0x44) {
+  u8 old = s.io[STAT] & 4;
+  u8 now = !!(s.io[LY] == s.io[LYC]) << 2;
+  s.io[STAT] = (s.io[STAT] & ~4) | now;
+  if ((now & (old ^ now)) && (s.io[STAT] & 0x40)) {
     s.io[IF] |= 2;
     DPRINT(INTERRUPTS, "trigger STAT IF 2 ly=lyc=%d\n", s.io[LY]);
   }
