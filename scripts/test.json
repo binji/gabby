@@ -109,7 +109,7 @@
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly143_144_152_153.gb", 23, "5e9838ad4a052495b10d7924c5c2bd97b3bcb99f"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly143_144_mode0_1.gb", 20, "df239da84d69b424b4a6dc810b15fbe9f4c1c5ea"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly143_144_mode3_0.gb", 20, "c28a76dccba07a034401f11a4b8c7e67a27087b9"],
-  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_lyc_0-GS.gb", 25, "!f831ff463d178d7691a87f3e73f953ee03e27ef0"],
+  ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_lyc_0-GS.gb", 32, "!827cb0235a264465d228c4dade61b5f2bc9c04ea"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_lyc_0_write-GS.gb", 19, "!d2ef6951caea69d6c284229abe97693a768bdb29"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_lyc_144-GS.gb", 21, "!3a517699f94f7b522e472b53c9fb9b03b9fc6d9d"],
   ["wilbertpol", "test/mooneye-gb-wp/build/acceptance/gpu/ly_lyc_153-GS.gb", 27, "!112fbaa0240a66960ddb8dae287eb4c5b6ba2420"],
