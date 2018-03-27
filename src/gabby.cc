@@ -209,8 +209,8 @@ struct GB {
   void PrintInstruction(u16 addr);
   void Trace();
 
-  bool UsingVRAM() const;
-  bool UsingOAM() const;
+  bool using_vram() const { return s.ppu_mode == 3; }
+  bool using_oam() const { return s.dma_active || s.ppu_mode == 2; }
   u8 Read(u16 addr);
   void Write(u16 addr, u8 val);
   void Write_ROM(u16 addr, u8 val);
@@ -716,14 +716,11 @@ void GB::DispatchInterrupt() {
   }
 }
 
-bool GB::UsingVRAM() const { return s.ppu_mode == 3; }
-bool GB::UsingOAM() const { return s.dma_active || s.ppu_mode == 2; }
-
 u8 GB::Read(u16 addr) {
   switch (addr >> 12) {
     case 0: case 1: case 2: case 3: return s.rom0p[addr & 0x3fff];
     case 4: case 5: case 6: case 7: return s.rom1p[addr & 0x3fff];
-    case 8: case 9: return UsingVRAM() ? 0xff : s.vramp[addr & 0x1fff];
+    case 8: case 9: return using_vram() ? 0xff : s.vramp[addr & 0x1fff];
     case 10: case 11:
       return s.sram_enabled ? s.sramp[addr & cart.sram_addr_mask & 0x1fff]
                             : 0xff;
@@ -732,7 +729,7 @@ u8 GB::Read(u16 addr) {
     case 15:
       switch ((addr >> 8) & 0xf) {
         default: return s.wram1p[addr & 0xfff];
-        case 14: return UsingOAM() ? 0xff : s.oam[addr & 0xff];
+        case 14: return using_oam() ? 0xff : s.oam[addr & 0xff];
         case 15: return s.io[addr & 0xff];
       }
   }
@@ -744,7 +741,7 @@ void GB::Write(u16 addr, u8 val) {
     case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7:
       Write_ROM(addr & 0x7fff, val);
       break;
-    case 8: case 9: if (!UsingVRAM()) { s.vramp[addr & 0x1fff] = val; } break;
+    case 8: case 9: if (!using_vram()) { s.vramp[addr & 0x1fff] = val; } break;
     case 10: case 11:
       if (s.sram_enabled) {
         s.sramp[addr & cart.sram_addr_mask & 0x1fff] = val;
@@ -755,7 +752,7 @@ void GB::Write(u16 addr, u8 val) {
     case 15:
       switch ((addr >> 8) & 0xf) {
         default: s.wram1p[addr & 0xfff] = val; break;
-        case 14: if (!UsingOAM()) { s.oam[addr & 0xff] = val; } break;
+        case 14: if (!using_oam()) { s.oam[addr & 0xff] = val; } break;
         case 15: Write_IO(addr & 0xff, val); break;
       }
   }
