@@ -1412,13 +1412,13 @@ u8 GB::rlc(u8 x) {
 
 void GB::rla() {
   s.a = rl(s.a);
-  s.f &= ~FZ;
+  s.f &= FC;
   op_done();
 }
 
 void GB::rlca() {
   s.a = rlc(s.a);
-  s.f &= ~FZ;
+  s.f &= FC;
   op_done();
 }
 
@@ -1462,13 +1462,13 @@ u8 GB::rrc(u8 x) {
 
 void GB::rra() {
   s.a = rr(s.a);
-  s.f &= ~FZ;
+  s.f &= FC;
   op_done();
 }
 
 void GB::rrca() {
   s.a = rrc(s.a);
-  s.f &= ~FZ;
+  s.f &= FC;
   op_done();
 }
 
