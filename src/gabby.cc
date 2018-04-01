@@ -110,6 +110,7 @@ enum {
   WX = 0x4b,
   KEY1 = 0x4d,
   VBK = 0x4f,
+  BOOT = 0x50,
   HDMA1 = 0x51,
   HDMA2 = 0x52,
   HDMA3 = 0x53,
@@ -183,7 +184,7 @@ struct State {
 };
 
 struct GB {
-  explicit GB(Buffer&&, Variant);
+  explicit GB(Buffer&& rom, Buffer&& boot_rom, Variant);
   void Step();
   void StepCPU();
   void DispatchInterrupt();
@@ -195,6 +196,8 @@ struct GB {
   void StepPPU_Mode3(Tick mode_tick);
   void SetPPUMode(u8 mode);
   void CheckLyLyc();
+
+  bool has_boot_rom() const { return !boot_rom.empty(); }
 
   static bool rising(Tick tick) { return (tick & 1) == 0; }
   static bool falling(Tick tick) { return (tick & 1) == 1; }
@@ -342,6 +345,7 @@ struct GB {
   void xor_r(u8 r);
 
   Buffer rom;
+  Buffer boot_rom;
   Cart cart;
   State s;
 };
@@ -408,12 +412,6 @@ Cart::Cart(const Buffer& rom, Variant variant) {
 
 State::State(GB& gb) {
   std::fill((u8*)this, (u8*)this + sizeof(State), 0);
-  af = 0x01b0;
-  bc = 0x0013;
-  de = 0x00d8;
-  hl = 0x014d;
-  sp = 0xfffe;
-  pc = 0x0100;
   rom0p = gb.rom.data();
   rom1p = gb.rom.data() + 0x4000;
   vramp = vram;
@@ -424,28 +422,69 @@ State::State(GB& gb) {
   std::fill(oam + 0xa0, oam + 0x100, 0xff);
   std::fill(io, io + 0x80, 0xff);
 
-  static const u8 dmg_io_init[0x4c] = {
-      0xcf, 0,    0x7e, 0xff, 0xac, 0,    0,    0xf8, 0xff, 0xff, 0xff,
-      0xff, 0xff, 0xff, 0xff, 0xe1, 0x80, 0xbf, 0xf3, 0xff, 0xbf, 0xff,
-      0x3f, 0,    0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff, 0xff,
-      0,    0,    0xbf, 0x77, 0xf3, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xff,
-      0xff, 0xff, 0xff, 0xff, 0x60, 0x0d, 0xda, 0xdd, 0x50, 0x0f, 0xad,
-      0xed, 0xc0, 0xde, 0xf0, 0x0d, 0xbe, 0xef, 0xfe, 0xed, 0x91, 0x80,
-      0,    0,    0,    0,    0xff, 0xfc, 0xff, 0xff, 0,    0};
-
-  std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
-  div_reset_tick = -0xabcc * 2;
   tima_overflow_tick = TIMER_NO_OVERFLOW;
-  ppu_mode = 2;
-  ppu_lcd_on_tick = 0;
-  ppu_line_start_tick = -LINE_START_TICK;
-  ppu_mode_start_tick = -MODE_START_TICK;
-  ppu_pixel = ppu_buffer;
   dma_start_tick = MaxTick;
+  ppu_pixel = ppu_buffer;
+
+  static const u8 dmg_io_init[0x4c] = {
+      // 0     1     2     3     4     5     6     7
+/* 00 */ 0xcf, 0,    0x7e, 0xff, 0,    0,    0,    0xf8,
+/* 08 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0,
+/* 10 */ 0x80, 0x3f, 0xff, 0xff, 0xbf, 0xff, 0x3f, 0,
+/* 18 */ 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff,
+/* 20 */ 0xff, 0,    0,    0xbf, 0xff, 0xff, 0x07, 0xff,
+/* 28 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+/* 30 */ 0x60, 0x0d, 0xda, 0xdd, 0x50, 0x0f, 0xad, 0xed,
+/* 38 */ 0xc0, 0xde, 0xf0, 0x0d, 0xbe, 0xef, 0xfe, 0xed,
+/* 40 */ 0,    0x80, 0,    0,    0,    0,    0xff, 0xff,
+/* 48 */ 0xff, 0xff, 0,    0};
+  std::copy(dmg_io_init, dmg_io_init + sizeof(dmg_io_init), io);
+
+  if (gb.has_boot_rom()) {
+    gb.boot_rom.resize(0x4000);
+    std::copy(gb.rom.data() + 0x100, gb.rom.data() + 0x4000,
+              gb.boot_rom.data() + 0x100);
+    rom0p = gb.boot_rom.data();
+
+    ppu_mode = 0;
+    ppu_lcd_on_tick = MaxTick;
+    ppu_line_start_tick = 0;
+    ppu_mode_start_tick = 0;
+  } else {
+    // Calculated from boot rom with sha1sum:
+    // 4ed31ec6b0b175bb109c0eb5fd3d193da823339f
+    af = 0x01b0;
+    bc = 0x0013;
+    de = 0x00d8;
+    hl = 0x014d;
+    sp = 0xfffe;
+    pc = 0x0100;
+
+    io[DIV] = 0xab;
+    io[IF] = 0xe1;
+    io[NR11] = 0xbf;
+    io[NR12] = 0xf3;
+    io[NR50] = 0x77;
+    io[NR51] = 0xf3;
+    io[NR52] = 0xf1;
+    io[LCDC] = 0x91;
+    io[STAT] = 0x85;
+    io[BGP] = 0xfc;
+
+    ppu_mode = 1;
+    ppu_line_y = 153;
+    div_reset_tick = -46880648;
+    ppu_lcd_on_tick = -46347713;
+    ppu_line_start_tick = -793;
+    ppu_mode_start_tick = -8996;
+  }
 }
 
-GB::GB(Buffer&& rom_, Variant variant)
-    : rom(std::move(rom_)), cart(rom, variant), s(*this) {}
+GB::GB(Buffer&& rom_, Buffer&& boot_rom_, Variant variant)
+    : rom(std::move(rom_)),
+      boot_rom(std::move(boot_rom_)),
+      cart(rom, variant),
+      s(*this) {}
 
 #define REG_OPS(code, name)              \
   case code + 0: name##_r(s.b); break;   \
@@ -920,6 +959,16 @@ void GB::Write_IO(u8 addr, u8 val) {
 
     case SCY:
       DPRINT(SCROLL, "scy: %d ly: %d\n", s.io[SCY], s.io[LY]);
+      break;
+
+    case BOOT:
+      if (has_boot_rom() && s.rom0p == boot_rom.data() && val == 1) {
+        s.rom0p = rom.data();
+        // TODO: remove cheat for APU regs
+        s.io[NR11] = 0xbf;
+        s.io[NR13] = 0xff;
+        s.io[NR52] = 0xf1;
+      }
       break;
   }
 }
@@ -2131,9 +2180,10 @@ void WriteFramePPM(const GB& gb, const char* filename) {
   }
 }
 
-static const char* s_filename = nullptr;
-static const char* s_ppm_filename = nullptr;
-static bool s_trace = false;
+static const char* s_filename;
+static const char* s_boot_rom_filename;
+static const char* s_ppm_filename;
+static bool s_trace;
 static int s_frames = 60;
 
 void ParseArguments(int argc, char** argv) {
@@ -2160,9 +2210,16 @@ void ParseArguments(int argc, char** argv) {
 
         case 'o':
           if (--argc == 0) {
-            throw Error("filename require for -o");
+            throw Error("filename required for -o");
           }
           s_ppm_filename = *++argv;
+          break;
+
+        case 'b':
+          if (--argc == 0) {
+            throw Error("filename required for -b");
+          }
+          s_boot_rom_filename = *++argv;
           break;
       }
     } else if (s_filename) {
@@ -2187,7 +2244,13 @@ int main(int argc, char** argv) {
   try {
     ParseArguments(argc, argv);
 
-    GB gb(ReadFile(s_filename), Variant::Guess);
+    Buffer boot_rom_file;
+    if (s_boot_rom_filename) {
+      boot_rom_file = ReadFile(s_boot_rom_filename);
+      ThrowUnless(boot_rom_file.size() == 256, "Invalid boot rom size");
+    }
+
+    GB gb(ReadFile(s_filename), std::move(boot_rom_file), Variant::Guess);
 
     Clock run_clocks = s_frames * 70224u;
     f64 start_time = GetTime();
@@ -2199,6 +2262,31 @@ int main(int argc, char** argv) {
     } else {
       for (Clock i = 0; i < run_clocks; ++i) {
         gb.Step();
+#if 0
+        if (gb.s.pc == 0x100 && gb.s.op_tick == 2) {
+          printf("io: {\n  ");
+          for (int i = 0; i < 0x4c; ++i) {
+            printf("0x%02x,", gb.s.io[i]);
+            if (((i+1) & 7) == 0) {
+              printf("\n  ");
+            }
+          }
+          printf("\n}\n");
+          printf("af=0x%02x\n", gb.s.af);
+          printf("bc=0x%02x\n", gb.s.bc);
+          printf("de=0x%02x\n", gb.s.de);
+          printf("hl=0x%02x\n", gb.s.hl);
+          printf("sp=0x%02x\n", gb.s.sp);
+          printf("pc=0x%02x\n", gb.s.pc);
+          printf("ppu_mode = %d\n", gb.s.ppu_mode);
+          printf("ppu_line_y = %d\n", gb.s.ppu_line_y);
+          printf("tick = %lu\n", gb.s.tick);
+          printf("ppu_lcd_on_tick = %ld\n", gb.s.ppu_lcd_on_tick);
+          printf("ppu_line_start_tick = %ld\n", gb.s.ppu_line_start_tick);
+          printf("ppu_mode_start_tick = %ld\n", gb.s.ppu_mode_start_tick);
+          printf("div_reset_tick = %ld\n", gb.s.div_reset_tick);
+        }
+#endif
       }
     }
     f64 host_time = GetTime() - start_time;
